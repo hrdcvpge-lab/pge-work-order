@@ -329,3 +329,93 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 .assignment-scope-banner span { flex:1; }
 .assignment-scope-banner b { align-self:center; border-radius:999px; padding:3px 7px; background:#dbeafe; color:#1d4ed8; font-size:9px; white-space:nowrap; }
 .assignment-scope-note { display:block; margin-top:4px; color:#2563eb; font-size:8.5px; line-height:1.4; text-transform:none; letter-spacing:0; font-weight:700; }
+
+
+/* v0.2.7 — Admin / PPIC live process indicator. Only the real in-progress step pulses.
+   Ready / waiting steps remain highlighted but do not blink, so the dashboard stays readable. */
+.route-card--station-printing, .process-ticket--station-printing, .drawer-status-band--station-printing, .wo-table__row--station-printing { --process-rgb: 37, 99, 235; }
+.route-card--station-cutting, .process-ticket--station-cutting, .drawer-status-band--station-cutting, .wo-table__row--station-cutting { --process-rgb: 234, 88, 12; }
+.route-card--station-sewing, .process-ticket--station-sewing, .drawer-status-band--station-sewing, .wo-table__row--station-sewing { --process-rgb: 124, 58, 237; }
+.route-card--station-finishing, .process-ticket--station-finishing, .drawer-status-band--station-finishing, .wo-table__row--station-finishing { --process-rgb: 219, 39, 119; }
+.route-card--station-qc, .process-ticket--station-qc, .drawer-status-band--station-qc, .wo-table__row--station-qc { --process-rgb: 5, 150, 105; }
+.route-card--station-packing, .process-ticket--station-packing, .drawer-status-band--station-packing, .wo-table__row--station-packing { --process-rgb: 101, 163, 13; }
+.route-card--station-warehouse, .process-ticket--station-warehouse, .drawer-status-band--station-warehouse, .wo-table__row--station-warehouse { --process-rgb: 180, 83, 9; }
+
+@keyframes pge-current-process-glow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(var(--process-rgb), .28), 0 8px 18px rgba(var(--process-rgb), .12); }
+  50% { box-shadow: 0 0 0 3px rgba(var(--process-rgb), .5), 0 0 0 8px rgba(var(--process-rgb), .12), 0 12px 28px rgba(var(--process-rgb), .2); }
+}
+
+@keyframes pge-current-process-dot {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+
+.live-process-banner,
+.current-process-indicator {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  gap: 4px;
+  border: 1px solid rgba(var(--process-rgb), .28);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(var(--process-rgb), .10);
+  color: rgb(var(--process-rgb));
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: .045em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  animation: pge-current-process-dot 1.2s ease-in-out infinite;
+}
+
+.drawer-status-band--live { animation: pge-current-process-glow 1.55s ease-in-out infinite; }
+.route-card--live,
+.process-ticket--live { position: relative; animation: pge-current-process-glow 1.55s ease-in-out infinite; }
+.route-card--live::after,
+.process-ticket--live::after {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgb(var(--process-rgb));
+  box-shadow: 0 0 0 3px rgba(var(--process-rgb), .16);
+  content: '';
+  animation: pge-current-process-dot 1.2s ease-in-out infinite;
+}
+
+.wo-table__row--live-current td { background: rgba(var(--process-rgb), .045); }
+.wo-table__row--live-current td:first-child { position: relative; }
+.wo-table__row--live-current td:first-child::after {
+  position: absolute;
+  top: 50%;
+  left: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgb(var(--process-rgb));
+  box-shadow: 0 0 0 3px rgba(var(--process-rgb), .15);
+  content: '';
+  transform: translateY(-50%);
+  animation: pge-current-process-dot 1.2s ease-in-out infinite;
+}
+.wo-table__row--live-current td:first-child b,
+.wo-table__row--live-current td:first-child small { margin-left: 10px; }
+.wo-table__row .current-process-indicator { margin-left: 5px; vertical-align: 1px; }
+.route-card__badges .current-process-indicator,
+.process-ticket__header-badges .current-process-indicator { align-self: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-status-band--live,
+  .route-card--live,
+  .process-ticket--live,
+  .live-process-banner,
+  .current-process-indicator,
+  .route-card--live::after,
+  .process-ticket--live::after,
+  .wo-table__row--live-current td:first-child::after { animation: none !important; }
+}

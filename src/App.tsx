@@ -488,15 +488,18 @@ export default function App() {
               <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
+                  const activeStep = order.steps.find((step) => deriveStepStatus(order, step) === 'in_progress')
                   const status = deriveOrderStatus(order)
-                  return <tr className={`wo-table__row wo-table__row--station-${current?.station || 'warehouse'}`} key={order.id} onClick={() => openOrder(order)}>
+                  const showLiveIndicator = ['admin', 'ppic'].includes(currentUser.role) && Boolean(activeStep)
+                  const indicatorStep = activeStep || current
+                  return <tr className={`wo-table__row wo-table__row--station-${indicatorStep?.station || 'warehouse'}${showLiveIndicator ? ' wo-table__row--live-current' : ''}`} key={order.id} onClick={() => openOrder(order)}>
                     <td><b>{order.code}</b><small>Dibuat {formatDate(order.createdAt.slice(0, 10))}</small></td>
                     <td><Badge kind="type" value={order.type} /><small>{order.source}</small></td>
                     <td><b>{order.product}</b><small>{order.referenceNote || 'Tidak ada catatan referensi'}</small></td>
                     <td><b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b><Badge kind="priority" value={order.priority} /></td>
                     <td><b>{getProgress(order)}%</b><small>{formatNumber(order.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0))}/{formatNumber(order.qty)} terpacking</small></td>
                     <td><Badge kind="status" value={status} />{getBlockerSummary(order) ? <small className="text-warning">{getBlockerSummary(order)}</small> : null}</td>
-                    <td><b>{current?.assignedUserId ? getDirectoryName(current.assignedUserId, staffDirectory) : 'Belum ditetapkan'}</b><small>{current ? <><Badge kind="station" value={current.station} /> {current.name}</> : 'Belum ada proses aktif'}</small></td>
+                    <td><b>{indicatorStep?.assignedUserId ? getDirectoryName(indicatorStep.assignedUserId, staffDirectory) : 'Belum ditetapkan'}</b><small>{indicatorStep ? <><Badge kind="station" value={indicatorStep.station} /> {indicatorStep.name}{showLiveIndicator ? <span className="current-process-indicator" title="Proses ini sedang berjalan">● Aktif sekarang</span> : null}</> : 'Belum ada proses aktif'}</small></td>
                     <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
                 })}
