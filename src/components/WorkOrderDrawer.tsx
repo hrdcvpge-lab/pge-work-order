@@ -85,9 +85,11 @@ export function WorkOrderDrawer({
   const status = deriveOrderStatus(workOrder)
   const progress = getProgress(workOrder)
   const blocker = getBlockerSummary(workOrder)
-  const currentStep = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
+  const activeStep = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
+  const currentStep = activeStep
     || workOrder.steps.find((step) => ['ready', 'waiting_wip'].includes(deriveStepStatus(workOrder, step)))
   const currentStation = currentStep?.station || 'warehouse'
+  const showLiveProcessIndicator = ['admin', 'ppic'].includes(currentUser.role) && Boolean(activeStep)
   const statusHeadline = status === 'draft'
     ? 'Draft · belum dijadwalkan'
     : currentStep
@@ -124,10 +126,11 @@ export function WorkOrderDrawer({
           <button className="icon-button" type="button" onClick={onClose} aria-label="Tutup detail"><Icon name="close" /></button>
         </header>
 
-        <section className={`drawer-status-band drawer-status-band--station-${currentStation}`}>
+        <section className={`drawer-status-band drawer-status-band--station-${currentStation}${showLiveProcessIndicator ? ' drawer-status-band--live' : ''}`}>
           <div>
             <div className="drawer-status-band__topline"><Badge kind="status" value={status} /><Badge kind="priority" value={workOrder.priority} /><Badge kind="type" value={workOrder.type} />{currentStep ? <Badge kind="station" value={currentStep.station} /> : null}</div>
             <strong>{statusHeadline}</strong>
+            {showLiveProcessIndicator ? <em className="live-process-banner">● Proses aktif sekarang</em> : null}
             <span>{statusNote}</span>
           </div>
           <div className="drawer-progress-number"><b>{progress}%</b><span>Progress packing</span></div>
@@ -184,7 +187,8 @@ export function WorkOrderDrawer({
             {workOrder.steps.map((step, index) => {
               const stepStatus = deriveStepStatus(workOrder, step)
               const isCurrent = currentStep?.id === step.id
-              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus} route-card--station-${step.station}${isCurrent ? ' route-card--current' : ''}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><div className="route-card__badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></article></div>
+              const isLive = showLiveProcessIndicator && activeStep?.id === step.id
+              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus} route-card--station-${step.station}${isCurrent ? ' route-card--current' : ''}${isLive ? ' route-card--live' : ''}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><div className="route-card__badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></article></div>
             })}
           </div>
         </section>
@@ -201,8 +205,9 @@ export function WorkOrderDrawer({
               const isPrinting = step.station === 'printing'
               const startBlocked = isPrinting && !artworkReadiness.ready
               const isCurrent = currentStep?.id === step.id
-              return <article className={`process-ticket process-ticket--station-${step.station}${isCurrent ? ' process-ticket--current' : ''}`} key={step.id}>
-                <header><div><span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></header>
+              const isLive = showLiveProcessIndicator && activeStep?.id === step.id
+              return <article className={`process-ticket process-ticket--station-${step.station}${isCurrent ? ' process-ticket--current' : ''}${isLive ? ' process-ticket--live' : ''}`} key={step.id}>
+                <header><div><span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></header>
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
                 <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
                 {isPrinting && finalArtwork ? <div className="printing-final-panel">
