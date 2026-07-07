@@ -1,48 +1,60 @@
-import type { ReactElement, SVGProps } from 'react'
+import type { ReactNode, SVGProps } from 'react'
 
 type IconName =
+  | 'dashboard'
+  | 'list'
+  | 'station'
+  | 'boxes'
+  | 'chart'
   | 'plus'
-  | 'calendar'
-  | 'clock'
-  | 'box'
-  | 'user'
-  | 'machine'
-  | 'arrowRight'
-  | 'play'
-  | 'check'
-  | 'x'
-  | 'history'
-  | 'filter'
+  | 'search'
+  | 'arrow'
   | 'close'
-  | 'clipboard'
-  | 'alert'
-  | 'chevron'
+  | 'clock'
+  | 'warning'
+  | 'check'
+  | 'play'
+  | 'pause'
+  | 'more'
+  | 'calendar'
+  | 'user'
+  | 'printer'
+  | 'package'
 
 type Props = SVGProps<SVGSVGElement> & { name: IconName }
 
-const paths: Record<IconName, ReactElement> = {
-  plus: <><path d="M12 5v14M5 12h14" /></>,
-  calendar: <><rect x="3.5" y="5.5" width="17" height="15" rx="2" /><path d="M7.5 3.5v4M16.5 3.5v4M3.5 10h17" /></>,
-  clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3.2 2" /></>,
-  box: <><path d="m4 7 8-4 8 4-8 4-8-4Z" /><path d="M4 7v10l8 4 8-4V7M12 11v10" /></>,
-  user: <><circle cx="12" cy="8" r="3.2" /><path d="M5.5 20c.8-3.6 3.1-5.5 6.5-5.5s5.7 1.9 6.5 5.5" /></>,
-  machine: <><path d="M5 19V6h9v13M14 11h5v8M7.5 9h4M7.5 13h4M3 19h18" /></>,
-  arrowRight: <><path d="M4 12h15M14 6l6 6-6 6" /></>,
-  play: <><path d="m9 6 8 6-8 6V6Z" /></>,
-  check: <><path d="m5 12 4.2 4.2L19 6.7" /></>,
-  x: <><path d="m6 6 12 12M18 6 6 18" /></>,
-  history: <><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5" /><path d="M4 4v4.5h4.5M12 7v5l3.5 2" /></>,
-  filter: <><path d="M4 6h16M7 12h10M10 18h4" /></>,
-  close: <><path d="m6 6 12 12M18 6 6 18" /></>,
-  clipboard: <><rect x="5" y="5" width="14" height="16" rx="2" /><path d="M9 5V4a3 3 0 0 1 6 0v1M9 10h6M9 14h6" /></>,
-  alert: <><path d="m12 3 9 16H3l9-16Z" /><path d="M12 9v4M12 16h.01" /></>,
-  chevron: <><path d="m8 10 4 4 4-4" /></>,
-}
-
 export function Icon({ name, ...props }: Props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      {paths[name]}
-    </svg>
-  )
+  const base = {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.9,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    ...props,
+  }
+
+  const paths: Record<IconName, ReactNode> = {
+    dashboard: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
+    list: <><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></>,
+    station: <><path d="M4 19h16M6 19V9h12v10M8 9V5h8v4M9 13h.01M15 13h.01"/></>,
+    boxes: <><path d="m12 3 8 4.2v9.6L12 21l-8-4.2V7.2L12 3Z"/><path d="m4 7.2 8 4.3 8-4.3M12 11.5V21"/></>,
+    chart: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></>,
+    plus: <><path d="M12 5v14M5 12h14"/></>,
+    search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>,
+    arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>,
+    close: <><path d="m6 6 12 12M18 6 6 18"/></>,
+    clock: <><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></>,
+    warning: <><path d="m12 3 9 16H3L12 3Z"/><path d="M12 9v4M12 16h.01"/></>,
+    check: <><path d="m5 12 4 4L19 6"/></>,
+    play: <><path d="m8 5 11 7-11 7V5Z"/></>,
+    pause: <><path d="M9 5v14M15 5v14"/></>,
+    more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+    calendar: <><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></>,
+    user: <><circle cx="12" cy="8" r="3"/><path d="M5 21c.8-4 3.2-6 7-6s6.2 2 7 6"/></>,
+    printer: <><path d="M6 9V4h12v5M6 17H4V10h16v7h-2"/><path d="M7 14h10v6H7z"/></>,
+    package: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></>,
+  }
+
+  return <svg {...base}>{paths[name]}</svg>
 }
