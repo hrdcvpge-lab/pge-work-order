@@ -39,12 +39,22 @@ export interface TeamMember {
   stations: Station[]
 }
 
+/** Company directory used by Admin / PPIC when planning a Work Order. */
+export interface StaffDirectoryMember {
+  id: string
+  name: string
+  employeeNumber?: string
+  kind: 'staff' | 'planner'
+}
+
 export interface ProcessStep {
   id: string
   sequence: number
   name: string
   station: Station
   assignedUserId?: string
+  /** Optional escalation / reporting owner selected before WO deployment. */
+  reportToUserId?: string
   plannedQty: number
   inputs: string[]
   output: string
@@ -98,6 +108,9 @@ export interface WorkOrder {
   priority: Priority
   machine?: string
   scheduledDate?: string
+  /** Saved so a Draft can safely rebuild its route before deployment. */
+  routeTemplateId?: RouteTemplate['id']
+  customRoute?: string[]
   status: WorkOrderStatus
   reworkCount: number
   createdAt: string
