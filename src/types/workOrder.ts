@@ -32,17 +32,30 @@ export type Priority = 'p1' | 'p2' | 'p3' | 'p4'
 export type WorkOrderType = 'mto' | 'mts'
 export type ArtworkApprovalStatus = 'pending' | 'approved' | 'superseded'
 
-/**
- * Quantity that cannot reach Packing yet because a process rejected it or QC
- * issued a final reject. Admin / PPIC must decide the next action.
- */
+export type DefectCategory =
+  | 'print_color_mismatch'
+  | 'wrong_artwork'
+  | 'print_position_shifted'
+  | 'cutting_not_neat'
+  | 'stitching_not_neat'
+  | 'zipper_issue'
+  | 'material_defect'
+  | 'lining_issue'
+  | 'branding_incorrect'
+  | 'packaging_issue'
+  | 'other'
+
+/** Quantity that cannot reach Packing yet because a process rejected it or QC issued a final reject. */
 export type ShortfallOrigin = 'process_reject' | 'qc_final_reject'
 export type ShortfallStatus =
   | 'action_required'
   | 'replacement_planned'
+  | 'awaiting_approval'
   | 'approved_short_shipment'
   | 'cancelled_remaining'
   | 'resolved'
+
+export type ShortfallRequestedAction = 'short_shipment' | 'cancel_remaining'
 
 export interface TeamMember {
   id: string
@@ -57,6 +70,19 @@ export interface StaffDirectoryMember {
   name: string
   employeeNumber?: string
   kind: 'staff' | 'planner'
+  isActive?: boolean
+  /** Explicit eligibility list. Empty/undefined means not yet configured for production assignment. */
+  allowedStations?: Station[]
+  defaultReportToUserId?: string
+  defaultWorkArea?: string
+  canReceiveEscalation?: boolean
+}
+
+export interface QualityEvidence {
+  id: string
+  name: string
+  dataUrl: string
+  createdAt: string
 }
 
 export interface ProcessStep {
@@ -81,6 +107,12 @@ export interface ProcessStep {
   artworkConfirmedBy?: string
   artworkConfirmedAt?: string
   artworkConfirmedImageId?: string
+  /** QC/quality record, captured after a QC decision or a reject result. Evidence is optional. */
+  defectCategory?: DefectCategory
+  defectNote?: string
+  defectEvidence?: QualityEvidence[]
+  inspectedQty?: number
+  qualityRecordedAt?: string
   /** A controlled extra process created to fulfill a shortfall or rework lot. */
   isReplacement?: boolean
   /** Links a replacement process to the rejected quantity it is expected to recover. */
@@ -99,6 +131,12 @@ export interface WorkOrderShortfall {
   note?: string
   replacementStartStepId?: string
   replacementStepIds?: string[]
+  /** For MTO short shipment/cancellation, Admin or PPIC requests and Manager approves. */
+  requestedAction?: ShortfallRequestedAction
+  requestedBy?: string
+  requestedAt?: string
+  decisionBy?: string
+  decisionAt?: string
   resolvedBy?: string
   resolvedAt?: string
   resolutionNote?: string
