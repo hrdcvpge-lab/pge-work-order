@@ -4,7 +4,7 @@ import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { initialWorkOrders, routeTemplates, teamMembers } from './data/mockData'
-import type { Priority, ProcessStep, Role, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderType } from './types/workOrder'
+import type { Priority, ProcessStep, Role, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderType } from './types/workOrder'
 import {
   deriveOrderStatus,
   deriveStepStatus,
@@ -497,6 +497,7 @@ export default function App() {
             source: data.source,
             product: data.product,
             referenceNote: data.referenceNote,
+            referenceImages: data.referenceImages,
             qty: data.qty,
             dueDate: data.dueDate,
             priority: data.priority,
@@ -636,18 +637,132 @@ export default function App() {
   )
 }
 
-type CreateData = { type: WorkOrderType; source: string; product: string; referenceNote: string; qty: number; dueDate: string; priority: Priority; template: string; customRoute: string[] }
+type CreateData = {
+  type: WorkOrderType
+  source: string
+  product: string
+  referenceNote: string
+  referenceImages: WorkOrderReferenceImage[]
+  qty: number
+  dueDate: string
+  priority: Priority
+  template: string
+  customRoute: string[]
+}
+
+const MAX_ARTWORK_IMAGES = 6
+const MAX_ARTWORK_FILE_BYTES = 8 * 1024 * 1024
+const MAX_ARTWORK_DIMENSION = 1600
+
+function routeNeedsArtwork(template: string, customRoute: string[]) {
+  return template === 'print-sew' || template === 'multi-part' || (template === 'custom' && customRoute.includes('printing'))
+}
+
+function readArtworkFile(file: File): Promise<WorkOrderReferenceImage> {
+  return new Promise((resolve, reject) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      reject(new Error(`${file.name}: gunakan JPG, PNG, atau WEBP.`))
+      return
+    }
+
+    if (file.size > MAX_ARTWORK_FILE_BYTES) {
+      reject(new Error(`${file.name}: ukuran maksimal 8 MB per gambar.`))
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error(`Gagal membaca ${file.name}.`))
+    reader.onload = () => {
+      const image = new Image()
+      image.onerror = () => reject(new Error(`${file.name}: file gambar tidak dapat diproses.`))
+      image.onload = () => {
+        const scale = Math.min(1, MAX_ARTWORK_DIMENSION / Math.max(image.width, image.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(image.width * scale))
+        canvas.height = Math.max(1, Math.round(image.height * scale))
+        const context = canvas.getContext('2d')
+        if (!context) {
+          reject(new Error(`Gagal menyiapkan preview ${file.name}.`))
+          return
+        }
+
+        context.fillStyle = '#ffffff'
+        context.fillRect(0, 0, canvas.width, canvas.height)
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        const name = `${file.name.replace(/\.[^/.]+$/, '') || 'artwork'}.jpg`
+        resolve({
+          id: createId('artwork'),
+          name,
+          dataUrl: canvas.toDataURL('image/jpeg', 0.84),
+          createdAt: new Date().toISOString(),
+        })
+      }
+      image.src = String(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCreate: (data: CreateData) => void }) {
   const [type, setType] = useState<WorkOrderType>('mto')
   const [template, setTemplate] = useState('multi-part')
   const [customRoute, setCustomRoute] = useState<string[]>(['printing', 'cutting', 'lining', 'zipper', 'sewing', 'finishing'])
   const [form, setForm] = useState({ source: '', product: '', referenceNote: '', qty: 100, dueDate: new Date().toISOString().slice(0, 10), priority: 'p3' as Priority })
+  const [referenceImages, setReferenceImages] = useState<WorkOrderReferenceImage[]>([])
+  const [uploadError, setUploadError] = useState('')
+  const [isUploading, setIsUploading] = useState(false)
 
+  const needsArtwork = routeNeedsArtwork(template, customRoute)
   const toggleCustom = (id: string) => setCustomRoute((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])
 
+  const addArtworkFiles = async (fileList: FileList | File[] | null) => {
+    const incoming = Array.from(fileList || [])
+    if (!incoming.length) return
+
+    const availableSlots = MAX_ARTWORK_IMAGES - referenceImages.length
+    if (availableSlots <= 0) {
+      setUploadError(`Maksimal ${MAX_ARTWORK_IMAGES} gambar motif untuk satu WO.`)
+      return
+    }
+
+    setUploadError('')
+    setIsUploading(true)
+    try {
+      const candidates = incoming.slice(0, availableSlots)
+      const results = await Promise.allSettled(candidates.map(readArtworkFile))
+      const successful = results
+        .filter((result): result is PromiseFulfilledResult<WorkOrderReferenceImage> => result.status === 'fulfilled')
+        .map((result) => result.value)
+      const failed = results
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map((result) => result.reason instanceof Error ? result.reason.message : 'Gagal menambahkan gambar.')
+
+      if (successful.length) {
+        setReferenceImages((current) => [...current, ...successful])
+      }
+      if (incoming.length > availableSlots) {
+        failed.push(`Hanya ${availableSlots} gambar yang dapat ditambahkan. Maksimal ${MAX_ARTWORK_IMAGES} gambar per WO.`)
+      }
+      if (failed.length) setUploadError(failed.join(' '))
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const removeArtwork = (id: string) => {
+    setReferenceImages((current) => current.filter((image) => image.id !== id))
+    setUploadError('')
+  }
+
   return <Modal title="Buat Work Order" subtitle="Draft belum masuk ke lantai produksi. PPIC harus menjadwalkan sebelum proses pertama bisa dimulai." onClose={onClose} wide>
-    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onCreate({ type, template, customRoute, ...form, qty: Number(form.qty) }) }}>
+    <form className="form-stack" onSubmit={(event) => {
+      event.preventDefault()
+      if (needsArtwork && referenceImages.length === 0) {
+        setUploadError('Rute dengan proses Printing wajib memiliki minimal satu gambar artwork / motif agar operator mencetak desain yang benar.')
+        return
+      }
+      onCreate({ type, template, customRoute, referenceImages, ...form, qty: Number(form.qty) })
+    }}>
       <div className="form-section-label">1. Sumber dan produk</div>
       <div className="segmented-control"><button className={type === 'mto' ? 'is-active' : ''} type="button" onClick={() => setType('mto')}>Pesanan customer / MTO</button><button className={type === 'mts' ? 'is-active' : ''} type="button" onClick={() => setType('mts')}>Buat stok / MTS</button></div>
       <div className="form-grid">
@@ -655,13 +770,31 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
         <label><span>Jumlah rencana</span><input required min="1" type="number" value={form.qty} onChange={(event) => setForm({ ...form, qty: Number(event.target.value) })} /></label>
         <label className="form-grid__wide"><span>Deskripsi produk</span><input required value={form.product} onChange={(event) => setForm({ ...form, product: event.target.value })} placeholder="Contoh: Cover passport Korea, maroon, motif landmark, resleting putih" /></label>
         <label className="form-grid__wide"><span>Referensi / lokasi artwork</span><input value={form.referenceNote} onChange={(event) => setForm({ ...form, referenceNote: event.target.value })} placeholder="Contoh: Canva / Produk Juli / Korea final V3" /></label>
+        <div className="form-grid__wide artwork-field">
+          <span>Artwork / motif untuk printing {needsArtwork ? <b>· wajib</b> : '· opsional'}</span>
+          <div className="artwork-upload">
+            <input id="artworkUpload" className="artwork-upload__input" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { void addArtworkFiles(event.target.files); event.currentTarget.value = '' }} />
+            <label className="artwork-upload__dropzone" htmlFor="artworkUpload" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addArtworkFiles(event.dataTransfer.files) }}>
+              <Icon name="upload" />
+              <span><b>{isUploading ? 'Menyiapkan gambar...' : 'Upload gambar motif / artwork'}</b><small>JPG, PNG, atau WEBP · maksimal 6 gambar · maksimal 8 MB per gambar. Gambar diperkecil agar lebih aman dibuka di ponsel operator.</small></span>
+            </label>
+            {referenceImages.length ? <div className="artwork-upload__grid">
+              {referenceImages.map((image, index) => <article className="artwork-upload__thumb" key={image.id}>
+                <img src={image.dataUrl} alt={`Artwork ${index + 1}: ${image.name}`} />
+                <div><b>Motif {index + 1}</b><small>{image.name}</small></div>
+                <button type="button" onClick={() => removeArtwork(image.id)} aria-label={`Hapus ${image.name}`}>×</button>
+              </article>)}
+            </div> : <p className="artwork-upload__empty">Belum ada gambar motif. Operator Printing nanti hanya dapat melihat catatan teks, bukan preview visual.</p>}
+            {uploadError ? <p className="artwork-upload__error">{uploadError}</p> : null}
+          </div>
+        </div>
         <label><span>Target selesai</span><input required type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
         <label><span>Prioritas</span><select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as Priority })}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </div>
       <div className="form-section-label">2. Pilih rute produksi</div>
       <div className="route-template-grid">{routeTemplates.map((item) => <button type="button" key={item.id} className={`route-template${template === item.id ? ' route-template--active' : ''}`} onClick={() => setTemplate(item.id)}><b>{item.title}</b><span>{item.description}</span></button>)}</div>
       {template === 'custom' ? <div className="custom-route-builder"><div><b>Proses dipilih</b><span>QC akhir dan packing ditambahkan otomatis. Rute yang sudah punya hasil tidak dapat diubah setelah produksi dimulai.</span></div><div className="custom-route-options">{CUSTOM_OPTIONS.map((item) => <button type="button" key={item.id} className={customRoute.includes(item.id) ? 'is-active' : ''} onClick={() => toggleCustom(item.id)}>{customRoute.includes(item.id) ? '✓ ' : '+ '}{item.label}</button>)}</div></div> : null}
-      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Buat draft WO</button></footer>
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={isUploading}>Buat draft WO</button></footer>
     </form>
   </Modal>
 }
