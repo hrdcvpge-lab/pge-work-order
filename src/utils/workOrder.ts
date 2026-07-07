@@ -1,4 +1,30 @@
-import type { Priority, ProcessStatus, ProcessStep, Role, Station, WorkOrder, WorkOrderStatus, WorkOrderType } from '../types/workOrder'
+import type { ArtworkApprovalStatus, Priority, ProcessStatus, ProcessStep, Role, Station, WorkOrder, WorkOrderReferenceImage, WorkOrderStatus, WorkOrderType } from '../types/workOrder'
+
+
+export const artworkApprovalLabels: Record<ArtworkApprovalStatus, string> = {
+  pending: 'Menunggu persetujuan',
+  approved: 'Disetujui untuk cetak',
+  superseded: 'Versi lama / diganti',
+}
+
+export const getPrimaryArtwork = (workOrder: WorkOrder): WorkOrderReferenceImage | undefined =>
+  (workOrder.referenceImages || []).find((image) => image.isPrimary)
+
+export const getApprovedPrimaryArtwork = (workOrder: WorkOrder): WorkOrderReferenceImage | undefined =>
+  (workOrder.referenceImages || []).find((image) => image.isPrimary && image.approvalStatus === 'approved')
+
+export const hasPrintingStep = (workOrder: WorkOrder) =>
+  workOrder.steps.some((step) => step.station === 'printing')
+
+export const getArtworkReadiness = (workOrder: WorkOrder) => {
+  if (!hasPrintingStep(workOrder)) return { ready: true, reason: '' }
+  const images = workOrder.referenceImages || []
+  if (!images.length) return { ready: false, reason: 'Belum ada artwork / motif untuk proses Printing.' }
+  const primary = getPrimaryArtwork(workOrder)
+  if (!primary) return { ready: false, reason: 'Belum ada file utama yang ditetapkan sebagai FINAL PRINT FILE.' }
+  if (primary.approvalStatus !== 'approved') return { ready: false, reason: 'FINAL PRINT FILE belum disetujui untuk cetak.' }
+  return { ready: true, reason: '' }
+}
 
 export const roleLabels: Record<Role, string> = {
   admin: 'Admin Operasional',
