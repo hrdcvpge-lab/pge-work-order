@@ -135,3 +135,71 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 .artwork-lightbox figcaption b { color: #303030; font-size: 11px; }
 .artwork-lightbox figcaption span { color: #777; font-size: 9.5px; line-height: 1.45; }
 @media (max-width: 620px) { .artwork-upload__grid { grid-template-columns: 1fr; }.artwork-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }.printing-artwork-panel { flex-direction: column; }.printing-artwork-panel__thumbs { justify-content: flex-start; }.artwork-lightbox { padding: 12px; }.artwork-lightbox figure { max-height: calc(100vh - 24px); padding: 10px; }.artwork-lightbox img { max-height: calc(100vh - 138px); } }
+
+/* Artwork approval, version control and printing verification */
+.section-heading__actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.button--compact { min-height:30px; padding:6px 9px; font-size:10px; }
+.final-artwork-card { display:grid; grid-template-columns:164px minmax(0,1fr); gap:13px; align-items:stretch; border:1px solid #e7bd36; border-radius:10px; padding:10px; background:linear-gradient(135deg,#fff8d8,#fffdf3); box-shadow:0 6px 16px rgba(178,127,0,.08); }
+.final-artwork-card__image { display:block; min-height:128px; overflow:hidden; border:1px solid #e2c56a; border-radius:7px; padding:0; background:#fff; cursor:pointer; }
+.final-artwork-card__image img { width:100%; height:100%; min-height:128px; object-fit:cover; }
+.final-artwork-card__copy { display:flex; flex-direction:column; align-items:flex-start; min-width:0; }
+.final-artwork-card__eyebrow { display:inline-flex; align-items:center; gap:4px; padding:4px 7px; border-radius:999px; background:#634800; color:#fff8d6; font-size:8.5px; font-weight:900; letter-spacing:.075em; }
+.final-artwork-card__eyebrow svg { width:12px; height:12px; }
+.final-artwork-card__copy h4 { margin:8px 0 2px; color:#362d14; font-size:13px; line-height:1.35; }
+.final-artwork-card__copy p { margin:0; color:#685b31; font-size:10px; line-height:1.5; }
+.final-artwork-card__note { margin:8px 0; border-left:3px solid #d49400; padding:6px 8px; background:rgba(255,255,255,.58); color:#6b5313; font-size:9.5px; line-height:1.45; }
+.artwork-status { display:inline-flex; width:max-content; align-items:center; border:1px solid transparent; border-radius:999px; padding:3px 6px; font-size:8px; font-style:normal; font-weight:800; line-height:1.2; }
+.artwork-status--approved { border-color:#a7e4ba; background:#ecfff1; color:#16763b; }
+.artwork-status--pending { border-color:#f3cf70; background:#fff8df; color:#8c6410; }
+.artwork-status--superseded { border-color:#dedede; background:#f6f6f6; color:#7e7e7e; }
+.artwork-gallery__item--primary { border:2px solid #d29a00; background:#fffdf1; }
+.artwork-gallery__item span { align-items:start; }
+.artwork-gallery__item em { margin-top:4px; }
+.printing-final-panel { display:grid; grid-template-columns:54px minmax(0,1fr); gap:9px; align-items:start; margin:10px 13px 0; border:1px solid #e7bd36; border-radius:8px; padding:9px; background:#fffdf1; }
+.printing-final-panel > button { width:54px; height:54px; overflow:hidden; border:1px solid #e0c366; border-radius:6px; padding:0; background:#fff; cursor:pointer; }
+.printing-final-panel > button img { display:block; width:100%; height:100%; object-fit:cover; }
+.printing-final-panel > div > span { display:block; color:#7b5707; font-size:8.5px; font-weight:900; letter-spacing:.07em; }
+.printing-final-panel > div > b { display:block; margin-top:2px; color:#4c3b0e; font-size:10.5px; }
+.printing-final-panel > div > small { display:block; margin-top:3px; color:#75602b; font-size:9.2px; line-height:1.45; }
+.printing-final-panel > div > em { display:flex; align-items:center; gap:4px; margin-top:6px; color:#477f58; font-size:8.5px; font-style:normal; font-weight:700; }
+.printing-final-panel > div > em svg { width:12px; height:12px; }
+.printing-final-panel--blocked { display:flex; grid-template-columns:none; color:#9b5e09; background:#fff8e4; border-color:#f4ce79; }
+.printing-final-panel--blocked > svg { width:18px; height:18px; flex:0 0 auto; }
+.printing-final-panel--blocked b { display:block; color:#7d4d08; font-size:10px; }
+.printing-final-panel--blocked small { display:block; margin-top:2px; color:#976a23; font-size:9px; line-height:1.45; }
+.station-artwork-briefing { display:grid; grid-template-columns:86px minmax(0,1fr); gap:10px; margin:11px 0; border:1px solid #e7bd36; border-radius:9px; padding:10px; background:#fffdf3; }
+.station-artwork-briefing__preview { width:86px; height:76px; overflow:hidden; border:1px solid #e1c46b; border-radius:6px; padding:0; background:#fff; cursor:pointer; }
+.station-artwork-briefing__preview img { display:block; width:100%; height:100%; object-fit:cover; }
+.station-artwork-briefing span { display:flex; align-items:center; gap:4px; color:#765408; font-size:8.5px; font-weight:900; letter-spacing:.07em; }
+.station-artwork-briefing span svg { width:13px; height:13px; }
+.station-artwork-briefing h4 { margin:4px 0 3px; color:#423513; font-size:12px; line-height:1.35; }
+.station-artwork-briefing p { margin:0; color:#6c5b2c; font-size:9.5px; line-height:1.45; }
+.station-artwork-briefing small { display:block; margin-top:5px; color:#897d55; font-size:8.5px; }
+.station-artwork-blocked { display:flex; align-items:flex-start; gap:8px; margin:11px 0; border:1px solid #f3cf70; border-radius:8px; padding:9px; background:#fff8e4; color:#936313; }
+.station-artwork-blocked svg { width:18px; height:18px; flex:0 0 auto; }
+.station-artwork-blocked b { display:block; color:#7a4d08; font-size:10px; }
+.station-artwork-blocked span { display:block; margin-top:2px; color:#916926; font-size:9px; line-height:1.45; }
+.artwork-manager__list { display:grid; gap:10px; }
+.artwork-manager-card { display:grid; grid-template-columns:116px minmax(0,1fr); gap:11px; border:1px solid #e3e3df; border-radius:9px; padding:10px; background:#fafaf8; }
+.artwork-manager-card--primary { border:2px solid #d9a200; background:#fffdf2; }
+.artwork-manager-card > img { width:116px; height:102px; object-fit:cover; border:1px solid #deded9; border-radius:6px; background:#f3f3f0; }
+.artwork-manager-card__fields { min-width:0; }
+.artwork-manager-card__titleline { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px; }
+.artwork-manager-card__titleline b { color:#4c4c4c; font-size:10.5px; }
+.text-button { border:0; background:transparent; color:#6e6e6e; padding:3px 0; font-size:9.5px; font-weight:800; cursor:pointer; }
+.text-button--danger { color:#b43636; }
+.artwork-manager-card__actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.approval-note { display:inline-flex; align-items:center; gap:4px; color:#267445; font-size:9px; font-weight:700; }
+.approval-note svg { width:13px; height:13px; }
+.approval-note--old { color:#777; }
+.approval-note--pending { color:#a77410; }
+.artwork-confirm__file { display:grid; grid-template-columns:minmax(220px,.9fr) minmax(0,1.1fr); gap:14px; align-items:start; padding:11px; border:1px solid #e6c35a; border-radius:9px; background:#fffdf4; }
+.artwork-confirm__file img { width:100%; max-height:310px; object-fit:contain; border:1px solid #e1d6a8; border-radius:7px; background:#fff; }
+.artwork-confirm__file span { display:flex; align-items:center; gap:5px; color:#745408; font-size:9px; font-weight:900; letter-spacing:.075em; }
+.artwork-confirm__file span svg { width:14px; height:14px; }
+.artwork-confirm__file h3 { margin:7px 0 4px; color:#3e3211; font-size:16px; line-height:1.3; }
+.artwork-confirm__file p { margin:0; color:#675a32; font-size:11px; line-height:1.55; }
+.artwork-confirm__file small { display:block; margin-top:8px; color:#8c815b; font-size:9px; }
+.artwork-confirm__check { display:flex; align-items:flex-start; gap:9px; border:1px solid #dcdcd6; border-radius:8px; padding:10px; background:#fff; color:#4e4e4e; font-size:10.5px; line-height:1.5; }
+.artwork-confirm__check input { width:17px; height:17px; margin-top:1px; accent-color:#bd8700; }
+@media (max-width:620px) { .final-artwork-card, .artwork-manager-card, .artwork-confirm__file { grid-template-columns:1fr; }.final-artwork-card__image { min-height:180px; }.final-artwork-card__image img { min-height:180px; }.artwork-manager-card > img { width:100%; height:160px; }.station-artwork-briefing { grid-template-columns:76px minmax(0,1fr); }.station-artwork-briefing__preview { width:76px; height:70px; } }
