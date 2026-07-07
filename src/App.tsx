@@ -83,14 +83,13 @@ function defaultLocationForStation(station: Station) {
   const prefixes: Record<Station, string> = {
     printing: 'Area Printing',
     cutting: 'Area Cutting',
-    component: 'Area Komponen',
     sewing: 'Meja Jahit',
     finishing: 'Area Finishing',
     qc: 'Area QC',
     packing: 'Area Packing',
-    general: 'Area Produksi Umum',
+    warehouse: 'Area Warehouse',
   }
-  return workAreas.find((area) => area.startsWith(prefixes[station])) || 'Area Produksi Umum'
+  return workAreas.find((area) => area.startsWith(prefixes[station])) || 'Area Warehouse / Material'
 }
 
 function createId(prefix: string) {
@@ -118,21 +117,23 @@ function getNextCode(workOrders: WorkOrder[]) {
   return `${prefix}${String(sequence).padStart(3, '0')}`
 }
 
-function stationForRole(role: Role) {
-  if (role === 'qc') return 'qc'
-  if (role === 'packing') return 'packing'
-  return undefined
+function hasFullWorkOrderAccess(currentUser: TeamMember) {
+  return ['admin', 'ppic', 'manager'].includes(currentUser.role)
 }
 
+/**
+ * Floor users may open and act on a process only when Admin / PPIC assigned
+ * that exact process to their account. Station membership alone is not enough.
+ */
 function canUseProcess(currentUser: TeamMember, step: ProcessStep) {
-  const assignedToDirectory = staffDirectory.some((member) => member.id === step.assignedUserId)
-  if (currentUser.role === 'operator') {
-    return !['qc', 'packing'].includes(step.station)
-      && (step.assignedUserId === currentUser.id || (assignedToDirectory && currentUser.stations.includes(step.station)))
-  }
-  if (currentUser.role === 'qc') return step.station === 'qc' && (step.assignedUserId === currentUser.id || assignedToDirectory)
-  if (currentUser.role === 'packing') return step.station === 'packing' && (step.assignedUserId === currentUser.id || assignedToDirectory)
-  return false
+  return !hasFullWorkOrderAccess(currentUser)
+    && Boolean(step.assignedUserId)
+    && step.assignedUserId === currentUser.id
+}
+
+function canViewWorkOrder(currentUser: TeamMember, workOrder: WorkOrder) {
+  return hasFullWorkOrderAccess(currentUser)
+    || workOrder.steps.some((step) => step.assignedUserId === currentUser.id)
 }
 
 function buildSteps(template: string, qty: number, customRoute: string[]) {
@@ -152,7 +153,7 @@ function buildSteps(template: string, qty: number, customRoute: string[]) {
   })
 
   const direct = [
-    step(1, 'Buat produk', 'general', [], 'Produk siap QC'),
+    step(1, 'Buat produk', 'sewing', [], 'Produk siap QC'),
     step(2, 'QC akhir', 'qc', ['Produk siap QC'], 'Produk lolos QC'),
     step(3, 'Packing', 'packing', ['Produk lolos QC'], 'Produk terpacking'),
   ]
@@ -171,8 +172,8 @@ function buildSteps(template: string, qty: number, customRoute: string[]) {
     return [
       step(1, 'Cetak gambar / motif', 'printing', [], 'Panel cetak'),
       step(2, 'Potong bahan', 'cutting', ['Panel cetak'], 'Panel potong'),
-      step(3, 'Siapkan furing', 'component', [], 'Set furing'),
-      step(4, 'Siapkan resleting / tali', 'component', [], 'Set resleting'),
+      step(3, 'Siapkan furing dari warehouse', 'warehouse', [], 'Set furing'),
+      step(4, 'Siapkan resleting / tali dari warehouse', 'warehouse', [], 'Set resleting'),
       step(5, 'Jahit / rakit produk', 'sewing', ['Panel potong', 'Set furing', 'Set resleting'], 'Produk siap finishing'),
       step(6, 'Finishing / rapikan', 'finishing', ['Produk siap finishing'], 'Produk siap QC'),
       step(7, 'QC akhir', 'qc', ['Produk siap QC'], 'Produk lolos QC'),
@@ -194,8 +195,8 @@ function buildSteps(template: string, qty: number, customRoute: string[]) {
 
   if (has('printing')) customSteps.push(step(customSteps.length + 1, 'Cetak gambar / motif', 'printing', [], output.printing))
   if (has('cutting')) customSteps.push(step(customSteps.length + 1, 'Potong bahan', 'cutting', has('printing') ? [output.printing] : [], output.cutting))
-  if (has('lining')) customSteps.push(step(customSteps.length + 1, 'Siapkan furing', 'component', [], output.lining))
-  if (has('zipper')) customSteps.push(step(customSteps.length + 1, 'Siapkan resleting / tali', 'component', [], output.zipper))
+  if (has('lining')) customSteps.push(step(customSteps.length + 1, 'Siapkan furing dari warehouse', 'warehouse', [], output.lining))
+  if (has('zipper')) customSteps.push(step(customSteps.length + 1, 'Siapkan resleting / tali dari warehouse', 'warehouse', [], output.zipper))
   if (has('sewing')) {
     const sewingInputs = [has('cutting') ? output.cutting : has('printing') ? output.printing : '', has('lining') ? output.lining : '', has('zipper') ? output.zipper : ''].filter(Boolean)
     customSteps.push(step(customSteps.length + 1, 'Jahit / rakit produk', 'sewing', sewingInputs, output.sewing))
@@ -231,7 +232,15 @@ export default function App() {
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
 
-  const currentUser = teamMembers.find((member) => member.id === currentUserId) || teamMembers[0]
+  // Every name in Team PGE can be selected in this frontend simulation. In production,
+  // the same `id` will come from Supabase Auth, not from this selector.
+  const userProfiles = useMemo<TeamMember[]>(() => [
+    ...teamMembers,
+    ...staffDirectory
+      .filter((member) => member.kind === 'staff' && !teamMembers.some((profile) => profile.id === member.id))
+      .map((member) => ({ id: member.id, name: member.name, role: 'operator' as const, stations: [] })),
+  ], [])
+  const currentUser = userProfiles.find((member) => member.id === currentUserId) || userProfiles[0]
   const selectedWorkOrder = workOrders.find((order) => order.id === selectedId) || null
 
   useEffect(() => {
@@ -240,36 +249,45 @@ export default function App() {
   }, [])
 
   const sortedOrders = useMemo(() => [...workOrders].sort(sortWorkOrders), [workOrders])
+  const scopedOrders = useMemo(
+    () => hasFullWorkOrderAccess(currentUser)
+      ? sortedOrders
+      : sortedOrders.filter((order) => canViewWorkOrder(currentUser, order)),
+    [currentUser, sortedOrders],
+  )
 
   const filteredOrders = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase('id-ID')
-    return sortedOrders.filter((order) => {
+    return scopedOrders.filter((order) => {
       const status = deriveOrderStatus(order)
       const matchesSearch = !needle || `${order.code} ${order.product} ${order.source}`.toLocaleLowerCase('id-ID').includes(needle)
       const matchesStatus = statusFilter === 'all' || status === statusFilter
       const matchesPriority = priorityFilter === 'all' || order.priority === priorityFilter
       return matchesSearch && matchesStatus && matchesPriority
     })
-  }, [priorityFilter, search, sortedOrders, statusFilter])
+  }, [priorityFilter, search, scopedOrders, statusFilter])
 
-  const readyTasks = useMemo(() => sortedOrders.flatMap((order) => order.steps
+  const readyTasks = useMemo(() => scopedOrders.flatMap((order) => order.steps
     .filter((step) => deriveStepStatus(order, step) === 'ready')
-    .map((step) => ({ order, step }))), [sortedOrders])
+    .filter((step) => hasFullWorkOrderAccess(currentUser) || step.assignedUserId === currentUser.id)
+    .map((step) => ({ order, step }))), [currentUser, scopedOrders])
 
-  const waitingTasks = useMemo(() => sortedOrders.flatMap((order) => order.steps
+  const waitingTasks = useMemo(() => scopedOrders.flatMap((order) => order.steps
     .filter((step) => deriveStepStatus(order, step) === 'waiting_wip')
-    .map((step) => ({ order, step }))), [sortedOrders])
+    .filter((step) => hasFullWorkOrderAccess(currentUser) || step.assignedUserId === currentUser.id)
+    .map((step) => ({ order, step }))), [currentUser, scopedOrders])
 
-  const holdTasks = useMemo(() => sortedOrders.flatMap((order) => order.steps
+  const holdTasks = useMemo(() => scopedOrders.flatMap((order) => order.steps
     .filter((step) => deriveStepStatus(order, step) === 'hold')
-    .map((step) => ({ order, step }))), [sortedOrders])
+    .filter((step) => hasFullWorkOrderAccess(currentUser) || step.assignedUserId === currentUser.id)
+    .map((step) => ({ order, step }))), [currentUser, scopedOrders])
 
   const qcTasks = useMemo(() => readyTasks.filter(({ step }) => step.station === 'qc'), [readyTasks])
-  const stationTasks = useMemo(() => sortedOrders.flatMap((order) => order.steps
+  const stationTasks = useMemo(() => scopedOrders.flatMap((order) => order.steps
     .filter((step) => canUseProcess(currentUser, step) && ['ready', 'in_progress', 'hold', 'waiting_wip'].includes(deriveStepStatus(order, step)))
-    .map((step) => ({ order, step }))), [currentUser, sortedOrders])
+    .map((step) => ({ order, step }))), [currentUser, scopedOrders])
 
-  const activeOrders = workOrders.filter((order) => !['done', 'closed', 'cancelled'].includes(deriveOrderStatus(order)))
+  const activeOrders = scopedOrders.filter((order) => !['done', 'closed', 'cancelled'].includes(deriveOrderStatus(order)))
   const overdueOrders = activeOrders.filter(isOverdue)
 
   const showToast = (message: string) => {
@@ -282,7 +300,13 @@ export default function App() {
     if (note) showToast(note)
   }
 
-  const openOrder = (order: WorkOrder) => setSelectedId(order.id)
+  const openOrder = (order: WorkOrder) => {
+    if (!canViewWorkOrder(currentUser, order)) {
+      showToast('WO ini tidak ditugaskan kepada akun Anda.')
+      return
+    }
+    setSelectedId(order.id)
+  }
 
   const beginStep = (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
     const status = deriveStepStatus(order, step)
@@ -405,7 +429,7 @@ export default function App() {
               <Icon name="user" />
               <span><b>{currentUser.name}</b><small>{roleLabels[currentUser.role]}</small></span>
               <select aria-label="Pilih pengguna demo" value={currentUserId} onChange={(event) => setCurrentUserId(event.target.value)}>
-                {teamMembers.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
+                {userProfiles.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
               </select>
             </label>
             {currentUser.role === 'admin' ? <button className="button button--primary" onClick={() => setModal({ type: 'create' })}><Icon name="plus" /> Buat WO</button> : null}
@@ -455,7 +479,7 @@ export default function App() {
         {view === 'orders' ? (
           <section className="view-content">
             <article className="surface-card">
-              <header className="surface-card__header"><div><p className="eyebrow">Daftar utama</p><h2>Kontrol Work Order</h2><span>Klik satu WO untuk melihat rute, WIP, PIC, timer, dan histori.</span></div><Badge kind="plain" value={`${filteredOrders.length} WO`} /></header>
+              <header className="surface-card__header"><div><p className="eyebrow">Daftar utama</p><h2>{hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2><span>{hasFullWorkOrderAccess(currentUser) ? 'Klik satu WO untuk melihat rute, WIP, PIC, timer, dan histori.' : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span></div><Badge kind="plain" value={`${filteredOrders.length} WO`} /></header>
               <div className="filter-row">
                 <label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari kode WO, produk, atau sumber order" /></label>
                 <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
@@ -465,14 +489,14 @@ export default function App() {
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
                   const status = deriveOrderStatus(order)
-                  return <tr className={`wo-table__row wo-table__row--station-${current?.station || 'general'}`} key={order.id} onClick={() => openOrder(order)}>
+                  return <tr className={`wo-table__row wo-table__row--station-${current?.station || 'warehouse'}`} key={order.id} onClick={() => openOrder(order)}>
                     <td><b>{order.code}</b><small>Dibuat {formatDate(order.createdAt.slice(0, 10))}</small></td>
                     <td><Badge kind="type" value={order.type} /><small>{order.source}</small></td>
                     <td><b>{order.product}</b><small>{order.referenceNote || 'Tidak ada catatan referensi'}</small></td>
                     <td><b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b><Badge kind="priority" value={order.priority} /></td>
                     <td><b>{getProgress(order)}%</b><small>{formatNumber(order.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0))}/{formatNumber(order.qty)} terpacking</small></td>
                     <td><Badge kind="status" value={status} />{getBlockerSummary(order) ? <small className="text-warning">{getBlockerSummary(order)}</small> : null}</td>
-                    <td><b>{current?.assignedUserId ? teamMembers.find((member) => member.id === current.assignedUserId)?.name : 'Belum ditetapkan'}</b><small>{current ? <><Badge kind="station" value={current.station} /> {current.name}</> : 'Belum ada proses aktif'}</small></td>
+                    <td><b>{current?.assignedUserId ? getDirectoryName(current.assignedUserId, staffDirectory) : 'Belum ditetapkan'}</b><small>{current ? <><Badge kind="station" value={current.station} /> {current.name}</> : 'Belum ada proses aktif'}</small></td>
                     <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
                 })}
@@ -484,7 +508,7 @@ export default function App() {
         {view === 'station' ? (
           <section className="view-content station-view">
             <div className="station-hero">
-              <div><p className="eyebrow">Tampilan operator</p><h2>{currentUser.name}</h2><span>{roleLabels[currentUser.role]} · {currentUser.stations.map((station) => stationLabels[station]).join(', ')}</span></div>
+              <div><p className="eyebrow">Tampilan operator</p><h2>{currentUser.name}</h2><span>{roleLabels[currentUser.role]} · {currentUser.stations.length ? currentUser.stations.map((station) => stationLabels[station]).join(', ') : 'Akses sesuai proses yang ditugaskan'}</span></div>
               <div className="station-hero__note"><Icon name="package" /><span>Hanya langkah yang ditugaskan ke akun ini yang muncul di sini.</span></div>
             </div>
             <div className="station-task-list">
@@ -506,7 +530,7 @@ export default function App() {
                   {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
                   <footer><button className="button button--secondary" onClick={() => openOrder(order)}>Lihat WO</button>{operationAllowed && status === 'ready' ? <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => startStep(order, step)}><Icon name="play" /> {isPrinting ? (order.artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai'}</button> : null}{operationAllowed && status === 'in_progress' ? <><button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button>{step.station === 'qc' ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button> : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>}</> : null}{operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}{operationAllowed && status === 'hold' ? <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan</button> : null}</footer>
                 </article>
-              }) : <div className="empty-state empty-state--large">Tidak ada proses aktif untuk akun ini. Pilih pengguna lain di kanan atas untuk melihat antrean stasiun lain.</div>}
+              }) : <div className="empty-state empty-state--large">Tidak ada proses yang ditugaskan kepada akun ini. Admin atau PPIC perlu menetapkan Anda sebagai PIC pada proses WO.</div>}
             </div>
           </section>
         ) : null}
@@ -516,12 +540,12 @@ export default function App() {
             <article className="surface-card">
               <header className="surface-card__header"><div><p className="eyebrow">Ketersediaan proses</p><h2>WIP per Work Order</h2><span>WIP tidak sama dengan stok gudang. Ini adalah hasil proses di dalam WO yang menunggu dipakai langkah berikutnya.</span></div></header>
               <div className="wip-summary-grid">
-                <div><span>Total WIP tersedia</span><b>{formatNumber(sortedOrders.flatMap((order) => order.steps.flatMap((step) => step.inputs.map((input) => getWipBalance(order, input)))).reduce((total, value) => total + value, 0))}</b><small>Unit di antarastasiun</small></div>
-                <div><span>WO dengan WIP</span><b>{formatNumber(sortedOrders.filter((order) => order.steps.some((step) => step.inputs.some((input) => getWipBalance(order, input) > 0))).length)}</b><small>WO belum selesai</small></div>
-                <div><span>WIP siap QC</span><b>{formatNumber(sortedOrders.reduce((total, order) => total + getWipBalance(order, 'Produk siap QC'), 0))}</b><small>Produk menunggu QC</small></div>
+                <div><span>Total WIP tersedia</span><b>{formatNumber(scopedOrders.flatMap((order) => order.steps.flatMap((step) => step.inputs.map((input) => getWipBalance(order, input)))).reduce((total, value) => total + value, 0))}</b><small>Unit di antarastasiun</small></div>
+                <div><span>WO dengan WIP</span><b>{formatNumber(scopedOrders.filter((order) => order.steps.some((step) => step.inputs.some((input) => getWipBalance(order, input) > 0))).length)}</b><small>WO belum selesai</small></div>
+                <div><span>WIP siap QC</span><b>{formatNumber(scopedOrders.reduce((total, order) => total + getWipBalance(order, 'Produk siap QC'), 0))}</b><small>Produk menunggu QC</small></div>
               </div>
               <div className="table-wrap"><table className="wo-table"><thead><tr><th>WIP</th><th>WO / Produk</th><th>Tersedia</th><th>Langkah berikutnya</th><th>Lokasi</th><th /></tr></thead><tbody>
-                {sortedOrders.flatMap((order) => Array.from(new Set(order.steps.flatMap((step) => step.inputs))).map((input) => ({ order, input, available: getWipBalance(order, input) })).filter((row) => row.available > 0)).map(({ order, input, available }) => {
+                {scopedOrders.flatMap((order) => Array.from(new Set(order.steps.flatMap((step) => step.inputs))).map((input) => ({ order, input, available: getWipBalance(order, input) })).filter((row) => row.available > 0)).map(({ order, input, available }) => {
                   const nextStep = order.steps.find((step) => step.inputs.includes(input) && deriveStepStatus(order, step) !== 'completed')
                   const sourceStep = order.steps.find((step) => step.output === input)
                   return <tr key={`${order.id}-${input}`} onClick={() => openOrder(order)}><td><b>{input}</b><small>Dari: {sourceStep?.name || '—'}</small></td><td><b>{order.code}</b><small>{order.product}</small></td><td><b>{formatNumber(available)} unit</b></td><td><b>{nextStep?.name || 'Tidak ada'}</b><small>{nextStep ? stationLabels[nextStep.station] : '—'}</small></td><td>{sourceStep?.location || 'Belum dicatat'}</td><td><button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></td></tr>
@@ -534,9 +558,9 @@ export default function App() {
         {view === 'reports' ? (
           <section className="view-content">
             <div className="report-grid">
-              <article className="surface-card"><p className="eyebrow">Kepatuhan proses</p><h2>{formatNumber(workOrders.filter((order) => order.history.length > 1).length)} WO</h2><span>Sudah punya riwayat selain pembuatan WO.</span></article>
-              <article className="surface-card"><p className="eyebrow">Rework</p><h2>{formatNumber(workOrders.reduce((total, order) => total + order.reworkCount, 0))} kejadian</h2><span>Dipakai untuk analisis akar masalah, bukan KPI individu saat ini.</span></article>
-              <article className="surface-card"><p className="eyebrow">Waktu aktif</p><h2>{formatDuration(workOrders.reduce((total, order) => total + getOrderActiveSeconds(order, clock), 0))}</h2><span>Data harus stabil sebelum dijadikan dasar evaluasi kinerja.</span></article>
+              <article className="surface-card"><p className="eyebrow">Kepatuhan proses</p><h2>{formatNumber(scopedOrders.filter((order) => order.history.length > 1).length)} WO</h2><span>Sudah punya riwayat selain pembuatan WO.</span></article>
+              <article className="surface-card"><p className="eyebrow">Rework</p><h2>{formatNumber(scopedOrders.reduce((total, order) => total + order.reworkCount, 0))} kejadian</h2><span>Dipakai untuk analisis akar masalah, bukan KPI individu saat ini.</span></article>
+              <article className="surface-card"><p className="eyebrow">Waktu aktif</p><h2>{formatDuration(scopedOrders.reduce((total, order) => total + getOrderActiveSeconds(order, clock), 0))}</h2><span>Data harus stabil sebelum dijadikan dasar evaluasi kinerja.</span></article>
             </div>
             <article className="surface-card report-note"><Icon name="warning" /><div><h2>Catatan implementasi</h2><p>Frontend ini menunjukkan bagaimana role, penugasan stasiun, WIP, timer, QC, packing, dan HOLD akan tampil. Data belum aman untuk penggunaan produksi sampai Supabase Auth, Row Level Security, dan database transition function diterapkan.</p></div></article>
           </section>
@@ -546,7 +570,7 @@ export default function App() {
       {selectedWorkOrder ? <WorkOrderDrawer
         workOrder={selectedWorkOrder}
         currentUser={currentUser}
-        team={teamMembers}
+        team={userProfiles}
         staffDirectory={staffDirectory}
         clock={clock}
         onClose={() => setSelectedId(null)}
@@ -1101,7 +1125,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, onClose, onSave }
             <div className="deployment-step__sequence">P{String(index + 1).padStart(2, '0')}</div>
             <div className="deployment-step__process"><b>{step.name}</b><span>{step.inputs.length ? `Butuh: ${step.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {step.output}</span></div>
             <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station, location: defaultLocationForStation(event.target.value as Station) })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-            <label><span>PIC pelaksana *</span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+            <label><span>PIC pelaksana *</span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Hanya PIC yang dipilih yang dapat melihat dan menjalankan tiket ini.</small></label>
             <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{directory.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
             <label><span>Area kerja / laporan hasil *</span><select value={step.location || ''} onChange={(event) => updatePlan(step.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
           </article>)}
@@ -1120,7 +1144,7 @@ function AssignProcessModal({ workOrder, step, staffDirectory: directory, onClos
   return <Modal title="Atur PIC & jalur laporan" subtitle="Gunakan daftar Team PGE agar penugasan konsisten. Perubahan ini hanya boleh sebelum proses mempunyai hasil atau timer." onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ assignedUserId, reportToUserId, location }) }}>
       <div className="callout"><Icon name="station" /><span><b>{workOrder.code}</b> · {step.name} · {stationLabels[step.station]}</span></div>
-      <label><span>PIC pelaksana</span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+      <label><span>PIC pelaksana</span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Tiket proses hanya tampil pada akun PIC yang dipilih.</small></label>
       <label><span>Lapor ke</span><select required value={reportToUserId} onChange={(event) => setReportToUserId(event.target.value)}><option value="">Pilih penerima laporan</option>{directory.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
       <label><span>Area kerja / laporan hasil</span><select required value={location} onChange={(event) => setLocation(event.target.value)}><option value="">Pilih area</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Simpan penugasan</button></footer>
