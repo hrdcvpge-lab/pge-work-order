@@ -32,6 +32,18 @@ export type Priority = 'p1' | 'p2' | 'p3' | 'p4'
 export type WorkOrderType = 'mto' | 'mts'
 export type ArtworkApprovalStatus = 'pending' | 'approved' | 'superseded'
 
+/**
+ * Quantity that cannot reach Packing yet because a process rejected it or QC
+ * issued a final reject. Admin / PPIC must decide the next action.
+ */
+export type ShortfallOrigin = 'process_reject' | 'qc_final_reject'
+export type ShortfallStatus =
+  | 'action_required'
+  | 'replacement_planned'
+  | 'approved_short_shipment'
+  | 'cancelled_remaining'
+  | 'resolved'
+
 export interface TeamMember {
   id: string
   name: string
@@ -69,6 +81,27 @@ export interface ProcessStep {
   artworkConfirmedBy?: string
   artworkConfirmedAt?: string
   artworkConfirmedImageId?: string
+  /** A controlled extra process created to fulfill a shortfall or rework lot. */
+  isReplacement?: boolean
+  /** Links a replacement process to the rejected quantity it is expected to recover. */
+  replacementForShortfallId?: string
+}
+
+export interface WorkOrderShortfall {
+  id: string
+  origin: ShortfallOrigin
+  sourceStepId: string
+  sourceStepName: string
+  sourceStation: Station
+  qty: number
+  status: ShortfallStatus
+  createdAt: string
+  note?: string
+  replacementStartStepId?: string
+  replacementStepIds?: string[]
+  resolvedBy?: string
+  resolvedAt?: string
+  resolutionNote?: string
 }
 
 export interface WorkOrderHistoryItem {
@@ -116,6 +149,8 @@ export interface WorkOrder {
   createdAt: string
   createdBy: string
   steps: ProcessStep[]
+  /** Reject/shortfall decisions remain visible until recovery, approval, or cancellation. */
+  shortfalls?: WorkOrderShortfall[]
   history: WorkOrderHistoryItem[]
 }
 
