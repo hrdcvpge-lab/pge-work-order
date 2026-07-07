@@ -46,6 +46,7 @@ type Props = {
   onCancel: () => void
   onManageArtwork: () => void
   onResolveShortfall: (shortfall: WorkOrderShortfall) => void
+  onReviewShortfall: (shortfall: WorkOrderShortfall) => void
 }
 
 const getMemberName = (id: string | undefined, team: TeamMember[], staffDirectory: StaffDirectoryMember[], fallback = 'Belum ditugaskan') => {
@@ -86,6 +87,7 @@ export function WorkOrderDrawer({
   onCancel,
   onManageArtwork,
   onResolveShortfall,
+  onReviewShortfall,
 }: Props) {
   const status = deriveOrderStatus(workOrder)
   const progress = getProgress(workOrder)
@@ -157,10 +159,10 @@ export function WorkOrderDrawer({
           <div className="progress-bar"><span style={{ width: `${progress}%` }} /></div>
         </section>
 
-        <section className={`drawer-section shortfall-section${shortfallSummary.actionRequiredQty > 0 ? ' shortfall-section--action' : shortfallSummary.replacementRemainingQty > 0 ? ' shortfall-section--replacement' : ''}`}>
+        <section className={`drawer-section shortfall-section${shortfallSummary.actionRequiredQty > 0 ? ' shortfall-section--action' : shortfallSummary.awaitingApprovalQty > 0 ? ' shortfall-section--pending' : shortfallSummary.replacementRemainingQty > 0 ? ' shortfall-section--replacement' : ''}`}>
           <div className="section-heading">
             <div><p className="eyebrow">Kekurangan & penggantian</p><h3>Target harus tetap dipertanggungjawabkan</h3></div>
-            <div className="section-heading__actions">{shortfallSummary.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfallSummary.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : <Badge kind="shortfall" value={shortfallSummary.isFulfilled ? 'resolved' : 'resolved'} />}</div>
+            <div className="section-heading__actions">{shortfallSummary.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfallSummary.awaitingApprovalQty > 0 ? <Badge kind="shortfall" value="awaiting_approval" /> : shortfallSummary.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : <Badge kind="shortfall" value="resolved" />}</div>
           </div>
           <div className="shortfall-metric-grid">
             <div><span>Target WO</span><b>{formatNumber(workOrder.qty)}</b></div>
@@ -171,7 +173,7 @@ export function WorkOrderDrawer({
           {workOrder.shortfalls?.length ? <div className="shortfall-list">
             {workOrder.shortfalls.map((item) => <article className={`shortfall-row shortfall-row--${item.status}`} key={item.id}>
               <div className="shortfall-row__copy"><b>{formatNumber(item.qty)} unit · {item.sourceStepName}</b><span>{item.origin === 'qc_final_reject' ? 'Reject final QC' : 'Reject proses'} · {item.note || 'Tidak ada catatan tambahan.'}</span>{item.resolutionNote ? <small>Keputusan: {item.resolutionNote}</small> : null}</div>
-              <div className="shortfall-row__right"><Badge kind="shortfall" value={item.status} />{['admin', 'ppic'].includes(currentUser.role) && item.status === 'action_required' ? <button type="button" className="button button--warning button--compact" onClick={() => onResolveShortfall(item)}>Tentukan tindakan</button> : null}</div>
+              <div className="shortfall-row__right"><Badge kind="shortfall" value={item.status} />{['admin', 'ppic'].includes(currentUser.role) && item.status === 'action_required' ? <button type="button" className="button button--warning button--compact" onClick={() => onResolveShortfall(item)}>Tentukan tindakan</button> : null}{currentUser.role === 'manager' && item.status === 'awaiting_approval' ? <button type="button" className="button button--primary button--compact" onClick={() => onReviewShortfall(item)}>Tinjau permohonan</button> : null}</div>
             </article>)}
           </div> : <div className="shortfall-empty"><Icon name="check" /> Target WO belum memiliki reject atau kekurangan yang memerlukan keputusan.</div>}
           {!closeReadiness.ready && ['admin', 'ppic'].includes(currentUser.role) ? <div className="shortfall-close-note"><Icon name="warning" /><span>{closeReadiness.reason}</span></div> : null}
