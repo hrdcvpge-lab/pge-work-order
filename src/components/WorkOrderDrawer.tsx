@@ -49,13 +49,12 @@ const getMemberName = (id: string | undefined, team: TeamMember[], staffDirector
   return staffDirectory.find((member) => member.id === id)?.name || team.find((member) => member.id === id)?.name || fallback
 }
 
-function canOperateStep(currentUser: TeamMember, step: ProcessStep, staffDirectory: StaffDirectoryMember[]) {
-  if (currentUser.role === 'manager') return false
-  const assignedToDirectory = staffDirectory.some((member) => member.id === step.assignedUserId)
-  if (currentUser.role === 'operator') return !['qc', 'packing'].includes(step.station) && (step.assignedUserId === currentUser.id || (assignedToDirectory && currentUser.stations.includes(step.station)))
-  if (currentUser.role === 'qc') return step.station === 'qc' && (step.assignedUserId === currentUser.id || assignedToDirectory)
-  if (currentUser.role === 'packing') return step.station === 'packing' && (step.assignedUserId === currentUser.id || assignedToDirectory)
-  return false
+function canOperateStep(currentUser: TeamMember, step: ProcessStep) {
+  // Assignment, not broad station membership, controls the frontend task scope.
+  // The backend will repeat this rule with authenticated user IDs.
+  return !['admin', 'ppic', 'manager'].includes(currentUser.role)
+    && Boolean(step.assignedUserId)
+    && step.assignedUserId === currentUser.id
 }
 
 function approvalClass(image: WorkOrderReferenceImage) {
@@ -88,7 +87,7 @@ export function WorkOrderDrawer({
   const blocker = getBlockerSummary(workOrder)
   const currentStep = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
     || workOrder.steps.find((step) => ['ready', 'waiting_wip'].includes(deriveStepStatus(workOrder, step)))
-  const currentStation = currentStep?.station || 'general'
+  const currentStation = currentStep?.station || 'warehouse'
   const statusHeadline = status === 'draft'
     ? 'Draft · belum dijadwalkan'
     : currentStep
@@ -107,6 +106,10 @@ export function WorkOrderDrawer({
   const artworkApprovalRequired = Boolean(workOrder.artworkApprovalRequired)
   const [activeArtwork, setActiveArtwork] = useState<WorkOrderReferenceImage | null>(null)
   const canManageArtwork = ['admin', 'ppic'].includes(currentUser.role)
+  const canViewAllProcessTickets = ['admin', 'ppic', 'manager'].includes(currentUser.role)
+  const visibleProcessTickets = canViewAllProcessTickets
+    ? workOrder.steps
+    : workOrder.steps.filter((step) => step.assignedUserId === currentUser.id)
 
   return (
     <div className="drawer-layer" role="presentation">
@@ -187,18 +190,19 @@ export function WorkOrderDrawer({
         </section>
 
         <section className="drawer-section">
-          <div className="section-heading"><div><p className="eyebrow">Tiket proses</p><h3>Catat pekerjaan per stasiun</h3></div></div>
+          <div className="section-heading"><div><p className="eyebrow">Tiket proses</p><h3>{canViewAllProcessTickets ? 'Catat pekerjaan per stasiun' : 'Tiket proses saya'}</h3></div></div>
+          {!canViewAllProcessTickets ? <div className="assignment-scope-banner"><Icon name="user" /><span>Anda hanya dapat melihat dan menjalankan tiket yang ditugaskan langsung kepada akun Anda. Alur di atas tetap terlihat sebagai konteks WO.</span><b>{visibleProcessTickets.length} tiket</b></div> : null}
           <div className="process-ticket-list">
-            {workOrder.steps.map((step, index) => {
+            {visibleProcessTickets.length ? visibleProcessTickets.map((step) => {
               const stepStatus = deriveStepStatus(workOrder, step)
               const inputCap = getAvailableInputCap(workOrder, step)
-              const canOperate = canOperateStep(currentUser, step, staffDirectory)
+              const canOperate = canOperateStep(currentUser, step)
               const canAssign = ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
               const isPrinting = step.station === 'printing'
               const startBlocked = isPrinting && !artworkReadiness.ready
               const isCurrent = currentStep?.id === step.id
               return <article className={`process-ticket process-ticket--station-${step.station}${isCurrent ? ' process-ticket--current' : ''}`} key={step.id}>
-                <header><div><span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></header>
+                <header><div><span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></header>
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
                 <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
                 {isPrinting && finalArtwork ? <div className="printing-final-panel">
@@ -216,7 +220,7 @@ export function WorkOrderDrawer({
                   {canOperate && stepStatus === 'hold' ? <button className="button button--success-soft" onClick={() => onResume(step)}>Lanjutkan</button> : null}
                 </div></footer>
               </article>
-            })}
+            }) : <div className="empty-state">Belum ada tiket proses yang ditugaskan langsung kepada akun ini.</div>}
           </div>
         </section>
 
