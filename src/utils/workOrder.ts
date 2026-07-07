@@ -1,5 +1,6 @@
 import type {
   ArtworkApprovalStatus,
+  DefectCategory,
   Priority,
   ProcessStatus,
   ProcessStep,
@@ -21,9 +22,24 @@ export const artworkApprovalLabels: Record<ArtworkApprovalStatus, string> = {
 export const shortfallStatusLabels: Record<ShortfallStatus, string> = {
   action_required: 'Butuh keputusan',
   replacement_planned: 'Penggantian direncanakan',
+  awaiting_approval: 'Menunggu persetujuan',
   approved_short_shipment: 'Kirim kurang disetujui',
   cancelled_remaining: 'Sisa dibatalkan',
   resolved: 'Terpenuhi',
+}
+
+export const defectCategoryLabels: Record<DefectCategory, string> = {
+  print_color_mismatch: 'Warna cetak tidak sesuai',
+  wrong_artwork: 'Motif / artwork salah',
+  print_position_shifted: 'Posisi cetak bergeser',
+  cutting_not_neat: 'Potongan tidak rapi',
+  stitching_not_neat: 'Jahitan tidak rapi',
+  zipper_issue: 'Masalah resleting',
+  material_defect: 'Cacat material',
+  lining_issue: 'Masalah furing',
+  branding_incorrect: 'Logo / branding salah',
+  packaging_issue: 'Masalah kemasan',
+  other: 'Lainnya',
 }
 
 export const getPrimaryArtwork = (workOrder: WorkOrder): WorkOrderReferenceImage | undefined =>
@@ -155,13 +171,16 @@ export const getShortfallSummary = (workOrder: WorkOrder) => {
   const actionRequiredQty = shortfalls
     .filter((item) => item.status === 'action_required')
     .reduce((total, item) => total + item.qty, 0)
+  const awaitingApprovalQty = shortfalls
+    .filter((item) => item.status === 'awaiting_approval')
+    .reduce((total, item) => total + item.qty, 0)
   const replacementPlannedQty = shortfalls
     .filter((item) => item.status === 'replacement_planned')
     .reduce((total, item) => total + item.qty, 0)
   const approvedQty = approvedShortShipmentQty + cancelledRemainingQty
   const remainingQty = Math.max(0, workOrder.qty - packedGood - approvedQty)
   const replacementRemainingQty = remainingQty > 0 ? Math.min(replacementPlannedQty, remainingQty) : 0
-  const requiresActionQty = actionRequiredQty + Math.max(0, remainingQty - replacementRemainingQty - actionRequiredQty)
+  const requiresActionQty = actionRequiredQty + awaitingApprovalQty + Math.max(0, remainingQty - replacementRemainingQty - actionRequiredQty - awaitingApprovalQty)
 
   return {
     shortfalls,
@@ -170,6 +189,7 @@ export const getShortfallSummary = (workOrder: WorkOrder) => {
     cancelledRemainingQty,
     approvedQty,
     actionRequiredQty,
+    awaitingApprovalQty,
     replacementPlannedQty,
     replacementRemainingQty,
     remainingQty,
@@ -182,6 +202,9 @@ export const getCloseReadiness = (workOrder: WorkOrder) => {
   const summary = getShortfallSummary(workOrder)
   if (summary.actionRequiredQty > 0) {
     return { ready: false, reason: `${formatNumber(summary.actionRequiredQty)} unit reject/kurang belum diputuskan oleh Admin atau PPIC.` }
+  }
+  if (summary.awaitingApprovalQty > 0) {
+    return { ready: false, reason: `${formatNumber(summary.awaitingApprovalQty)} unit masih menunggu persetujuan Manager / Owner.` }
   }
   if (summary.remainingQty > 0) {
     return { ready: false, reason: `Masih kurang ${formatNumber(summary.remainingQty)} unit dari target WO. Selesaikan penggantian atau setujui pengiriman kurang/sisa dibatalkan.` }
@@ -257,6 +280,7 @@ export const isOverdue = (workOrder: WorkOrder) => {
 export const getBlockerSummary = (workOrder: WorkOrder) => {
   const shortfall = getShortfallSummary(workOrder)
   if (shortfall.actionRequiredQty > 0) return `Kekurangan ${formatNumber(shortfall.actionRequiredQty)} unit · butuh keputusan`
+  if (shortfall.awaitingApprovalQty > 0) return `Kekurangan ${formatNumber(shortfall.awaitingApprovalQty)} unit · menunggu persetujuan`
   if (shortfall.replacementRemainingQty > 0) return `Penggantian ${formatNumber(shortfall.replacementRemainingQty)} unit berjalan`
 
   const holds = workOrder.steps.filter((step) => deriveStepStatus(workOrder, step) === 'hold')
