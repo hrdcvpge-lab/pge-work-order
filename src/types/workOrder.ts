@@ -30,6 +30,7 @@ export type ProcessStatus =
 
 export type Priority = 'p1' | 'p2' | 'p3' | 'p4'
 export type WorkOrderType = 'mto' | 'mts'
+export type ArtworkApprovalStatus = 'pending' | 'approved' | 'superseded'
 
 export interface TeamMember {
   id: string
@@ -55,6 +56,9 @@ export interface ProcessStep {
   startedAt?: string
   location?: string
   holdReason?: string
+  artworkConfirmedBy?: string
+  artworkConfirmedAt?: string
+  artworkConfirmedImageId?: string
 }
 
 export interface WorkOrderHistoryItem {
@@ -71,6 +75,12 @@ export interface WorkOrderReferenceImage {
   name: string
   dataUrl: string
   createdAt: string
+  version: string
+  approvalStatus: ArtworkApprovalStatus
+  isPrimary: boolean
+  printNote?: string
+  approvedBy?: string
+  approvedAt?: string
 }
 
 export interface WorkOrder {
