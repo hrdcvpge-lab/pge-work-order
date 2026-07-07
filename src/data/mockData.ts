@@ -258,13 +258,26 @@ export const initialWorkOrders: WorkOrder[] = [
     createdBy: 'Rena · Admin Operasional',
     steps: [
       step('s-401', 1, 'Buat produk', 'sewing', 80, [], 'Produk siap QC', 'u-sew', { status: 'completed', qtyGood: 80, activeSeconds: 8_400, location: 'Rak QC' }),
-      step('s-402', 2, 'QC akhir', 'qc', 80, ['Produk siap QC'], 'Produk lolos QC', 'u-qc', { status: 'ready', location: 'Area QC' }),
+      step('s-402', 2, 'QC akhir', 'qc', 80, ['Produk siap QC'], 'Produk lolos QC', 'u-qc', { status: 'completed', qtyGood: 70, qtyReject: 10, activeSeconds: 1_240, location: 'Area QC' }),
       step('s-403', 3, 'Packing', 'packing', 80, ['Produk lolos QC'], 'Produk terpacking', 'u-pack', { location: 'Area Packing' }),
+    ],
+    shortfalls: [
+      {
+        id: 'shortfall-demo-001',
+        origin: 'qc_final_reject',
+        sourceStepId: 's-402',
+        sourceStepName: 'QC akhir',
+        sourceStation: 'qc',
+        qty: 10,
+        status: 'action_required',
+        createdAt: ago(300),
+        note: '10 unit jahitan resleting tidak lurus dan dinyatakan reject final QC.',
+      },
     ],
     history: [
       { id: 'h-401', at: ago(2_000), actor: 'Rena · Admin Operasional', role: 'admin', title: 'WO dibuat', note: 'Order marketplace prioritas P1.' },
       { id: 'h-402', at: ago(1_200), actor: 'Rani · Jahit', role: 'operator', title: 'Produk masuk QC', note: '80 unit produk siap QC diserahkan ke area QC.' },
-      { id: 'h-403', at: ago(300), actor: 'Maya · QC', role: 'qc', title: 'Rework sebelumnya tercatat', note: '3 unit resleting miring; sudah diperbaiki dan masuk kembali ke QC.' },
+      { id: 'h-403', at: ago(300), actor: 'Maya · QC', role: 'qc', title: 'QC final reject tercatat', note: '70 unit lulus, 10 unit reject final. Menunggu keputusan penggantian dari Admin / PPIC.' },
     ],
   },
 ]
