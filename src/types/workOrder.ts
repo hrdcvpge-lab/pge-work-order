@@ -66,6 +66,13 @@ export interface WorkOrderHistoryItem {
   note?: string
 }
 
+export interface WorkOrderReferenceImage {
+  id: string
+  name: string
+  dataUrl: string
+  createdAt: string
+}
+
 export interface WorkOrder {
   id: string
   code: string
@@ -73,6 +80,7 @@ export interface WorkOrder {
   source: string
   product: string
   referenceNote?: string
+  referenceImages?: WorkOrderReferenceImage[]
   qty: number
   dueDate: string
   priority: Priority
