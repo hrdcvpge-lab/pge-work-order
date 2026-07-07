@@ -1,40 +1,27 @@
-# PGE Work Order Frontend v1.0
+# PGE Work Order — v0.3.0
 
-A clean React/Vite frontend baseline for PGE's manufacturing Work Order workflow. This package consolidates the earlier frontend features into one source tree; do not mix old v0.2.x patches into it.
+This release adds real Supabase authentication while preserving the existing Work Order interface.
 
-## What is included
+## What is real in this release
 
-- Draft → scheduled → production → QC → packing → done → closed lifecycle
-- Admin and PPIC planning/deployment with per-process station, PIC, reporting owner, area, machine, and schedule date
-- Standard stations: Printing, Cutting, Sewing / Assembly, Finishing, QC, Packing, Warehouse
-- Exact PIC task scope for floor users; station membership alone does not unlock another employee's task
-- Station-specific colors plus Admin/PPIC live glow for the active process
-- Artwork upload/reference with optional approval lock for Printing
-- Process timer, WIP, HOLD, QC pass/rework/reject, optional QC evidence, shortfall, replacement, and close protection
-- PPIC is the final operational approver for short shipment and cancellation of remaining quantity for both MTO and MTS
-- Seven reports: daily production, overdue WO, reject/defect, WIP aging, operator workload, machine workload, and customer order completion
-- Admin-only People & Station configuration for assignment eligibility and reporting defaults
+- Phone-number + 8 digit PIN login form
+- Phone input converts internally to `phone-62…@login.pge.internal`
+- Supabase Auth session persistence and sign out
+- Profile and role are loaded from `public.get_my_profile()`
+- The demo user switcher has been removed
+- Admin and PPIC accounts can sign in with the accounts already created in Supabase
 
-## Frontend authority model
+## What remains demo data
 
-| Role | Access |
-| --- | --- |
-| Admin | Create drafts, plan/deploy routes, assign PIC, request quantity exceptions, manage People & Station |
-| PPIC | Schedule/deploy, edit operational planning, create replacements, and give final approval for short shipment/cancel remaining |
-| Manager | Read-only dashboard, Work Orders, and reports |
-| Operator / QC / Packing | Exact assigned process only |
+The UI still displays `src/data/mockData.ts` for Work Orders, WIP, quality, artwork, and reports. The next release will replace those demo data reads and writes with real Supabase records.
 
-## Run locally
+## Required GitHub Actions build secrets
 
-```bash
-npm install
-npm run dev
-```
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-## Deploy
+The workflow must pass both values into the Vite build step. Do not put a service-role or secret key in GitHub Pages.
 
-Use the included GitHub Actions workflow. Follow `DEPLOY_V1.md` for the safe GitHub replacement process.
+## Upload strategy
 
-## Current limitation
-
-This package is a frontend simulation. Browser refresh resets state. Do not use it as the permanent production record until Supabase Auth, Postgres, Storage, Row Level Security, and server-side transition functions are implemented.
+Replace the complete `src/` folder, `package.json`, and `.github/workflows/deploy.yml` with the contents of this package. Do not mix older patch files into this release.
