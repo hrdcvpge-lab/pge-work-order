@@ -1,41 +1,41 @@
-# PGE Work Order Frontend Prototype
+# PGE Work Order Control — Frontend v0.2
 
-Interactive frontend prototype for the Work Order workflow:
+This is a React + TypeScript frontend prototype for PGE's Work Order process.
 
-`Draft → Scheduled → In Progress → QC Check → Done → Closed`
+## Included in this version
 
-QC rejection returns the Work Order to **In Progress** and increments `rework_count`.
+- MTO and MTS Work Orders
+- Draft → Scheduled → Production → QC → Packing → Done → Closed lifecycle
+- Role simulation for Admin, PPIC, Operator, QC, Packing, and Manager
+- Station-based task assignment
+- Route templates: direct, print-sew, multi-part, and simple custom routes
+- WIP visibility between production steps
+- Process timers, result logging, HOLD, QC pass/rework, packing, and audit history
+- Desktop dashboard plus an Android-friendly **Stasiun Saya** view
 
-## Included in this frontend stage
+## Important limits
 
-- Role switcher for Admin, PPIC, Operator, QC, and Manager.
-- Kanban Work Order board grouped by workflow status.
-- Role-specific actions shown on each work order card.
-- Forms for Draft creation, PPIC scheduling, Operator output submission, and QC decision.
-- Detail drawer with a readable Work Order audit trail.
-- Mock local state only. Refreshing the browser resets the data.
+This frontend uses mock data in browser memory. Refreshing resets the demo.
+It does not yet contain Supabase Auth, database persistence, RLS permissions, real notifications, or inventory posting.
 
-## Local setup
+## Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Then open the local Vite URL shown in your terminal.
+## Deploy with GitHub Pages
 
-## Production backend integration later
+The repository includes `.github/workflows/deploy.yml`.
 
-Replace the mock state in `src/App.tsx` with calls to Supabase RPC/Edge Functions.
-Do not write directly from the frontend to `work_orders` for state transitions.
+1. Push the project to the `main` branch.
+2. Open **Settings → Pages**.
+3. Set Source to **GitHub Actions**.
+4. GitHub will build and publish the `dist` directory.
 
-Recommended first backend functions:
+The repository name must stay `pge-work-order`, because `vite.config.ts` uses:
 
-- `create_work_order`
-- `schedule_work_order`
-- `start_work_order`
-- `submit_work_order_for_qc`
-- `record_qc_result`
-- `close_work_order`
-
-Each should validate the caller role, expected previous status, and append `wo_history` in the same transaction.
+```ts
+base: '/pge-work-order/'
+```
