@@ -18,10 +18,15 @@ export const hasPrintingStep = (workOrder: WorkOrder) =>
 
 export const getArtworkReadiness = (workOrder: WorkOrder) => {
   if (!hasPrintingStep(workOrder)) return { ready: true, reason: '' }
+
+  // Artwork is optional by default. Admin / PPIC may enable this control only
+  // for WOs where the motif, artwork version, or print instruction must be verified.
+  if (!workOrder.artworkApprovalRequired) return { ready: true, reason: '' }
+
   const images = workOrder.referenceImages || []
-  if (!images.length) return { ready: false, reason: 'Belum ada artwork / motif untuk proses Printing.' }
+  if (!images.length) return { ready: false, reason: 'WO ini mewajibkan artwork, tetapi belum ada gambar motif untuk proses Printing.' }
   const primary = getPrimaryArtwork(workOrder)
-  if (!primary) return { ready: false, reason: 'Belum ada file utama yang ditetapkan sebagai FINAL PRINT FILE.' }
+  if (!primary) return { ready: false, reason: 'WO ini mewajibkan FINAL PRINT FILE, tetapi belum ada file utama yang dipilih.' }
   if (primary.approvalStatus !== 'approved') return { ready: false, reason: 'FINAL PRINT FILE belum disetujui untuk cetak.' }
   return { ready: true, reason: '' }
 }
