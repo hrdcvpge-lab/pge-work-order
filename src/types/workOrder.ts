@@ -91,6 +91,8 @@ export interface WorkOrder {
   product: string
   referenceNote?: string
   referenceImages?: WorkOrderReferenceImage[]
+  /** When true, Printing is locked until one primary artwork is approved. */
+  artworkApprovalRequired?: boolean
   qty: number
   dueDate: string
   priority: Priority
