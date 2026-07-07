@@ -3,6 +3,7 @@ import { Badge } from './components/Badge'
 import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
+import { LivePeopleStation } from './components/LivePeopleStation'
 import { initialWorkOrders, routeTemplates, staffDirectory as initialStaffDirectory, teamMembers, workAreas } from './data/mockData'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
@@ -702,7 +703,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
         {view === 'reports' ? <ReportsView workOrders={scopedOrders} directory={staffDirectory} team={teamForViews} clock={clock} onOpenOrder={openOrder} /> : null}
 
-        {view === 'people' && currentUser.role === 'admin' ? <PeopleStationView directory={staffDirectory} team={teamForViews} onChange={setStaffDirectory} /> : null}
+        {view === 'people' && currentUser.role === 'admin' ? <LivePeopleStation /> : null}
       </main>
 
       {selectedWorkOrder ? <WorkOrderDrawer
