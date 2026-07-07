@@ -8,10 +8,25 @@ const daysFromToday = (offset: number) => {
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
 
-
-const artworkPreview = (id: string, name: string, title: string, base: string, accent: string): WorkOrderReferenceImage => {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560"><defs><pattern id="p" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M0 24 24 0 48 24 24 48Z" fill="${accent}" opacity=".22"/></pattern></defs><rect width="800" height="560" fill="${base}"/><rect x="30" y="30" width="740" height="500" rx="22" fill="url(#p)" stroke="${accent}" stroke-width="3"/><circle cx="400" cy="220" r="95" fill="${accent}" opacity=".95"/><path d="M330 265h140l-18-38-24 16-28-76-28 76-24-16-18 38Z" fill="${base}"/><text x="400" y="375" text-anchor="middle" font-family="Arial,sans-serif" font-size="40" font-weight="700" fill="${accent}">${title}</text><text x="400" y="415" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" fill="#ffffff">PREVIEW ARTWORK · FINAL CHECK</text></svg>`
-  return { id, name, dataUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`, createdAt: ago(180) }
+const artworkPreview = (
+  id: string,
+  name: string,
+  title: string,
+  base: string,
+  accent: string,
+  options: Partial<Pick<WorkOrderReferenceImage, 'version' | 'approvalStatus' | 'isPrimary' | 'printNote' | 'approvedBy' | 'approvedAt'>> = {},
+): WorkOrderReferenceImage => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560"><defs><pattern id="p" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M0 24 24 0 48 24 24 48Z" fill="${accent}" opacity=".22"/></pattern></defs><rect width="800" height="560" fill="${base}"/><rect x="30" y="30" width="740" height="500" rx="22" fill="url(#p)" stroke="${accent}" stroke-width="3"/><circle cx="400" cy="220" r="95" fill="${accent}" opacity=".95"/><path d="M330 265h140l-18-38-24 16-28-76-28 76-24-16-18 38Z" fill="${base}"/><text x="400" y="375" text-anchor="middle" font-family="Arial,sans-serif" font-size="40" font-weight="700" fill="${accent}">${title}</text><text x="400" y="415" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" fill="#ffffff">PGE ARTWORK PREVIEW</text></svg>`
+  return {
+    id,
+    name,
+    dataUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    createdAt: ago(180),
+    version: 'V1',
+    approvalStatus: 'pending',
+    isPrimary: false,
+    ...options,
+  }
 }
 
 export const teamMembers: TeamMember[] = [
@@ -27,26 +42,10 @@ export const teamMembers: TeamMember[] = [
 ]
 
 export const routeTemplates: RouteTemplate[] = [
-  {
-    id: 'direct',
-    title: 'Produk langsung',
-    description: 'Buat produk → QC akhir → Packing. Untuk produk sederhana atau proses satu meja.',
-  },
-  {
-    id: 'print-sew',
-    title: 'Cetak lalu jahit',
-    description: 'Cetak → Potong → Jahit/Rakit → QC akhir → Packing.',
-  },
-  {
-    id: 'multi-part',
-    title: 'Banyak komponen',
-    description: 'Cetak/Potong berjalan bersama furing dan resleting; jahit menunggu semua komponen.',
-  },
-  {
-    id: 'custom',
-    title: 'Atur alur sendiri',
-    description: 'Pilih proses yang dibutuhkan. QC akhir dan packing tetap ditambahkan otomatis.',
-  },
+  { id: 'direct', title: 'Produk langsung', description: 'Buat produk → QC akhir → Packing. Untuk produk sederhana atau proses satu meja.' },
+  { id: 'print-sew', title: 'Cetak lalu jahit', description: 'Cetak → Potong → Jahit/Rakit → QC akhir → Packing.' },
+  { id: 'multi-part', title: 'Banyak komponen', description: 'Cetak/Potong berjalan bersama furing dan resleting; jahit menunggu semua komponen.' },
+  { id: 'custom', title: 'Atur alur sendiri', description: 'Pilih proses yang dibutuhkan. QC akhir dan packing tetap ditambahkan otomatis.' },
 ]
 
 const step = (
@@ -58,7 +57,7 @@ const step = (
   inputs: string[],
   output: string,
   assignedUserId?: string,
-  values: Partial<Pick<ProcessStep, 'status' | 'qtyGood' | 'qtyRework' | 'qtyReject' | 'activeSeconds' | 'startedAt' | 'location' | 'holdReason'>> = {},
+  values: Partial<Pick<ProcessStep, 'status' | 'qtyGood' | 'qtyRework' | 'qtyReject' | 'activeSeconds' | 'startedAt' | 'location' | 'holdReason' | 'artworkConfirmedBy' | 'artworkConfirmedAt' | 'artworkConfirmedImageId'>> = {},
 ): ProcessStep => ({
   id,
   sequence,
@@ -85,8 +84,28 @@ export const initialWorkOrders: WorkOrder[] = [
     product: 'Cover Passport Korea · maroon · 250 pcs',
     referenceNote: 'Artwork Korea final — folder Canva / Produk Juli / Korea V3.',
     referenceImages: [
-      artworkPreview('art-korea-01', 'Korea-maroon-front-v3.jpg', 'KOREA · MAROON', '#781A24', '#E8B949'),
-      artworkPreview('art-korea-02', 'Korea-maroon-repeat-v3.jpg', 'KOREA · REPEAT', '#4A1423', '#F3D67B'),
+      artworkPreview('art-korea-01', 'Korea-maroon-front-v3.jpg', 'KOREA · MAROON', '#781A24', '#E8B949', {
+        version: 'V3',
+        approvalStatus: 'approved',
+        isPrimary: true,
+        printNote: 'FINAL PRINT FILE. Gunakan warna maroon, cetak 1 panel depan per unit. Cek posisi logo sebelum produksi massal.',
+        approvedBy: 'Dimas · PPIC',
+        approvedAt: ago(24 * 60),
+      }),
+      artworkPreview('art-korea-02', 'Korea-maroon-repeat-v3.jpg', 'KOREA · REPEAT', '#4A1423', '#F3D67B', {
+        version: 'V3',
+        approvalStatus: 'approved',
+        isPrimary: false,
+        printNote: 'Referensi pola ulang / backside. Ikuti ukuran dari FINAL PRINT FILE.',
+        approvedBy: 'Dimas · PPIC',
+        approvedAt: ago(24 * 60),
+      }),
+      artworkPreview('art-korea-03', 'Korea-maroon-front-v2.jpg', 'KOREA · V2', '#65202A', '#D59D3D', {
+        version: 'V2',
+        approvalStatus: 'superseded',
+        isPrimary: false,
+        printNote: 'JANGAN DICETAK. Diganti oleh V3 karena posisi logo direvisi.',
+      }),
     ],
     qty: 250,
     dueDate: daysFromToday(1),
@@ -98,7 +117,7 @@ export const initialWorkOrders: WorkOrder[] = [
     createdAt: ago(28 * 60),
     createdBy: 'Rena · Admin Operasional',
     steps: [
-      step('s-101', 1, 'Cetak gambar / motif', 'printing', 250, [], 'Panel cetak', 'u-print', { status: 'completed', qtyGood: 250, activeSeconds: 7_560, location: 'Rak WIP Cetak' }),
+      step('s-101', 1, 'Cetak gambar / motif', 'printing', 250, [], 'Panel cetak', 'u-print', { status: 'completed', qtyGood: 250, activeSeconds: 7_560, location: 'Rak WIP Cetak', artworkConfirmedBy: 'Bagus · Printing', artworkConfirmedAt: ago(155), artworkConfirmedImageId: 'art-korea-01' }),
       step('s-102', 2, 'Potong bahan', 'cutting', 250, ['Panel cetak'], 'Panel potong', 'u-cut', { status: 'in_progress', qtyGood: 140, activeSeconds: 2_310, startedAt: ago(17), location: 'Rak WIP Jahit' }),
       step('s-103', 3, 'Siapkan furing', 'component', 250, [], 'Set furing', 'u-finish', { status: 'completed', qtyGood: 250, activeSeconds: 2_040, location: 'Rak WIP Jahit' }),
       step('s-104', 4, 'Siapkan resleting / tali', 'component', 250, [], 'Set resleting', 'u-finish', { status: 'completed', qtyGood: 250, activeSeconds: 1_620, location: 'Rak WIP Jahit' }),
@@ -108,9 +127,10 @@ export const initialWorkOrders: WorkOrder[] = [
     ],
     history: [
       { id: 'h-101', at: ago(28 * 60), actor: 'Rena · Admin Operasional', role: 'admin', title: 'WO dibuat', note: 'Pesanan customer dibuat dengan alur banyak komponen.' },
-      { id: 'h-102', at: ago(24 * 60), actor: 'Dimas · PPIC', role: 'ppic', title: 'WO dijadwalkan', note: 'Printing dimulai hari ini di Mimaki Eco Solvent 01.' },
-      { id: 'h-103', at: ago(120), actor: 'Bagus · Printing', role: 'operator', title: 'Cetak selesai', note: '250 panel cetak baik masuk ke Rak WIP Cetak.' },
-      { id: 'h-104', at: ago(17), actor: 'Dini · Cutting', role: 'operator', title: 'Potong dimulai', note: 'Timer aktif. 140 panel potong sudah masuk Rak WIP Jahit.' },
+      { id: 'h-102', at: ago(24 * 60), actor: 'Dimas · PPIC', role: 'ppic', title: 'FINAL PRINT FILE disetujui', note: 'Korea maroon V3 ditetapkan sebagai file utama untuk cetak.' },
+      { id: 'h-103', at: ago(155), actor: 'Bagus · Printing', role: 'operator', title: 'Artwork diverifikasi sebelum cetak', note: 'Korea maroon V3 dibuka dan dikonfirmasi sesuai preview.' },
+      { id: 'h-104', at: ago(120), actor: 'Bagus · Printing', role: 'operator', title: 'Cetak selesai', note: '250 panel cetak baik masuk ke Rak WIP Cetak.' },
+      { id: 'h-105', at: ago(17), actor: 'Dini · Cutting', role: 'operator', title: 'Potong dimulai', note: 'Timer aktif. 140 panel potong sudah masuk Rak WIP Jahit.' },
     ],
   },
   {
@@ -120,7 +140,14 @@ export const initialWorkOrders: WorkOrder[] = [
     source: 'B2B · Travel Agent Nusantara',
     product: 'Dompet Pouch Landmark Mesir · 400 pcs',
     referenceNote: 'Kirim sampel final ke Sales sebelum produksi massal.',
-    referenceImages: [artworkPreview('art-egypt-01', 'Mesir-landmark-final.jpg', 'MESIR · LANDMARK', '#6A3F1B', '#F3B655')],
+    referenceImages: [
+      artworkPreview('art-egypt-01', 'Mesir-landmark-draft-v1.jpg', 'MESIR · LANDMARK', '#6A3F1B', '#F3B655', {
+        version: 'V1',
+        approvalStatus: 'pending',
+        isPrimary: true,
+        printNote: 'MENUNGGU FINAL CHECK. Jangan cetak massal sebelum PPIC / R&D menyetujui file.',
+      }),
+    ],
     qty: 400,
     dueDate: daysFromToday(2),
     priority: 'p2',
@@ -139,7 +166,7 @@ export const initialWorkOrders: WorkOrder[] = [
     ],
     history: [
       { id: 'h-201', at: ago(5 * 60), actor: 'Rena · Admin Operasional', role: 'admin', title: 'WO dibuat', note: 'Pesanan B2B diregistrasi.' },
-      { id: 'h-202', at: ago(4 * 60), actor: 'Dimas · PPIC', role: 'ppic', title: 'WO dijadwalkan', note: 'Menunggu operator printing mulai proses.' },
+      { id: 'h-202', at: ago(4 * 60), actor: 'Dimas · PPIC', role: 'ppic', title: 'WO dijadwalkan', note: 'Printing menunggu persetujuan FINAL PRINT FILE.' },
     ],
   },
   {
@@ -161,9 +188,7 @@ export const initialWorkOrders: WorkOrder[] = [
       step('s-302', 2, 'QC akhir', 'qc', 120, ['Produk siap QC'], 'Produk lolos QC', 'u-qc'),
       step('s-303', 3, 'Packing', 'packing', 120, ['Produk lolos QC'], 'Produk terpacking', 'u-pack'),
     ],
-    history: [
-      { id: 'h-301', at: ago(42 * 60), actor: 'Rena · Admin Operasional', role: 'admin', title: 'WO draft dibuat', note: 'Belum dirilis ke lantai produksi.' },
-    ],
+    history: [{ id: 'h-301', at: ago(42 * 60), actor: 'Rena · Admin Operasional', role: 'admin', title: 'WO draft dibuat', note: 'Belum dirilis ke lantai produksi.' }],
   },
   {
     id: 'wo-004',
