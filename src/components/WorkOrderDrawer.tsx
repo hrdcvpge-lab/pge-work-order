@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Badge } from './Badge'
 import { Icon } from './Icon'
-import type { ProcessStep, StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
+import type { ProcessStep, StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderReferenceImage, WorkOrderShortfall } from '../types/workOrder'
 import {
   artworkApprovalLabels,
   deriveOrderStatus,
@@ -14,8 +14,11 @@ import {
   getArtworkReadiness,
   getAvailableInputCap,
   getBlockerSummary,
+  getCloseReadiness,
   getOrderActiveSeconds,
+  getPackingGood,
   getProgress,
+  getShortfallSummary,
   getStepRecordedQty,
   getStepRemaining,
   getStepTimerSeconds,
@@ -42,6 +45,7 @@ type Props = {
   onCloseOrder: () => void
   onCancel: () => void
   onManageArtwork: () => void
+  onResolveShortfall: (shortfall: WorkOrderShortfall) => void
 }
 
 const getMemberName = (id: string | undefined, team: TeamMember[], staffDirectory: StaffDirectoryMember[], fallback = 'Belum ditugaskan') => {
@@ -81,6 +85,7 @@ export function WorkOrderDrawer({
   onCloseOrder,
   onCancel,
   onManageArtwork,
+  onResolveShortfall,
 }: Props) {
   const status = deriveOrderStatus(workOrder)
   const progress = getProgress(workOrder)
@@ -97,10 +102,16 @@ export function WorkOrderDrawer({
       : status === 'closed'
         ? 'WO sudah ditutup'
         : 'WO sudah selesai'
+  const shortfallSummary = getShortfallSummary(workOrder)
+  const closeReadiness = getCloseReadiness(workOrder)
   const statusNote = status === 'draft'
     ? 'Admin atau PPIC perlu menetapkan alur, PIC, penerima laporan, dan area kerja sebelum WO dideploy.'
-    : blocker || (isOverdue(workOrder) ? 'Melewati target tanggal' : 'Tidak ada blocker aktif')
-  const totalGood = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0)
+    : shortfallSummary.actionRequiredQty > 0
+      ? `Kekurangan ${formatNumber(shortfallSummary.actionRequiredQty)} unit membutuhkan keputusan Admin / PPIC.`
+      : shortfallSummary.replacementRemainingQty > 0
+        ? `Penggantian ${formatNumber(shortfallSummary.replacementRemainingQty)} unit sedang berjalan.`
+        : blocker || (isOverdue(workOrder) ? 'Melewati target tanggal' : 'Tidak ada blocker aktif')
+  const totalGood = getPackingGood(workOrder)
   const totalReject = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyReject, 0)
   const artworkImages = workOrder.referenceImages || []
   const finalArtwork = getApprovedPrimaryArtwork(workOrder)
@@ -141,9 +152,29 @@ export function WorkOrderDrawer({
             <div><span>Target</span><b>{formatNumber(workOrder.qty)} unit</b></div>
             <div><span>Target selesai</span><b className={isOverdue(workOrder) ? 'text-danger' : ''}>{formatDate(workOrder.dueDate)}</b></div>
             <div><span>Waktu aktif</span><b>{formatDuration(getOrderActiveSeconds(workOrder, clock))}</b></div>
-            <div><span>Hasil akhir</span><b>{formatNumber(totalGood)} baik · {formatNumber(totalReject)} reject</b></div>
+            <div><span>Hasil akhir</span><b>{formatNumber(totalGood)} terpacking · {formatNumber(totalReject)} reject</b></div>
           </div>
           <div className="progress-bar"><span style={{ width: `${progress}%` }} /></div>
+        </section>
+
+        <section className={`drawer-section shortfall-section${shortfallSummary.actionRequiredQty > 0 ? ' shortfall-section--action' : shortfallSummary.replacementRemainingQty > 0 ? ' shortfall-section--replacement' : ''}`}>
+          <div className="section-heading">
+            <div><p className="eyebrow">Kekurangan & penggantian</p><h3>Target harus tetap dipertanggungjawabkan</h3></div>
+            <div className="section-heading__actions">{shortfallSummary.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfallSummary.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : <Badge kind="shortfall" value={shortfallSummary.isFulfilled ? 'resolved' : 'resolved'} />}</div>
+          </div>
+          <div className="shortfall-metric-grid">
+            <div><span>Target WO</span><b>{formatNumber(workOrder.qty)}</b></div>
+            <div><span>Terpacking</span><b>{formatNumber(shortfallSummary.packedGood)}</b></div>
+            <div><span>Keputusan disetujui</span><b>{formatNumber(shortfallSummary.approvedQty)}</b></div>
+            <div><span>Masih perlu dipenuhi</span><b className={shortfallSummary.remainingQty > 0 ? 'text-danger' : ''}>{formatNumber(shortfallSummary.remainingQty)}</b></div>
+          </div>
+          {workOrder.shortfalls?.length ? <div className="shortfall-list">
+            {workOrder.shortfalls.map((item) => <article className={`shortfall-row shortfall-row--${item.status}`} key={item.id}>
+              <div className="shortfall-row__copy"><b>{formatNumber(item.qty)} unit · {item.sourceStepName}</b><span>{item.origin === 'qc_final_reject' ? 'Reject final QC' : 'Reject proses'} · {item.note || 'Tidak ada catatan tambahan.'}</span>{item.resolutionNote ? <small>Keputusan: {item.resolutionNote}</small> : null}</div>
+              <div className="shortfall-row__right"><Badge kind="shortfall" value={item.status} />{['admin', 'ppic'].includes(currentUser.role) && item.status === 'action_required' ? <button type="button" className="button button--warning button--compact" onClick={() => onResolveShortfall(item)}>Tentukan tindakan</button> : null}</div>
+            </article>)}
+          </div> : <div className="shortfall-empty"><Icon name="check" /> Target WO belum memiliki reject atau kekurangan yang memerlukan keputusan.</div>}
+          {!closeReadiness.ready && ['admin', 'ppic'].includes(currentUser.role) ? <div className="shortfall-close-note"><Icon name="warning" /><span>{closeReadiness.reason}</span></div> : null}
         </section>
 
         <section className="drawer-section artwork-section">
@@ -188,7 +219,7 @@ export function WorkOrderDrawer({
               const stepStatus = deriveStepStatus(workOrder, step)
               const isCurrent = currentStep?.id === step.id
               const isLive = showLiveProcessIndicator && activeStep?.id === step.id
-              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus} route-card--station-${step.station}${isCurrent ? ' route-card--current' : ''}${isLive ? ' route-card--live' : ''}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><div className="route-card__badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></article></div>
+              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus} route-card--station-${step.station}${step.isReplacement ? ' route-card--replacement' : ''}${isCurrent ? ' route-card--current' : ''}${isLive ? ' route-card--live' : ''}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><div className="route-card__badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{step.isReplacement ? <em className="replacement-indicator">↻ Penggantian</em> : null}{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></article></div>
             })}
           </div>
         </section>
@@ -206,8 +237,8 @@ export function WorkOrderDrawer({
               const startBlocked = isPrinting && !artworkReadiness.ready
               const isCurrent = currentStep?.id === step.id
               const isLive = showLiveProcessIndicator && activeStep?.id === step.id
-              return <article className={`process-ticket process-ticket--station-${step.station}${isCurrent ? ' process-ticket--current' : ''}${isLive ? ' process-ticket--live' : ''}`} key={step.id}>
-                <header><div><span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></header>
+              return <article className={`process-ticket process-ticket--station-${step.station}${step.isReplacement ? ' process-ticket--replacement' : ''}${isCurrent ? ' process-ticket--current' : ''}${isLive ? ' process-ticket--live' : ''}`} key={step.id}>
+                <header><div><span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}{step.isReplacement ? ' · Rute penggantian' : ''}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{step.isReplacement ? <em className="replacement-indicator">↻ Penggantian</em> : null}{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></header>
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
                 <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
                 {isPrinting && finalArtwork ? <div className="printing-final-panel">
