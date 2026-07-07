@@ -1,14 +1,14 @@
 export type Role = 'admin' | 'ppic' | 'operator' | 'qc' | 'packing' | 'manager'
 
+/** Approved production stations for PGE Work Order planning. */
 export type Station =
   | 'printing'
   | 'cutting'
-  | 'component'
   | 'sewing'
   | 'finishing'
   | 'qc'
   | 'packing'
-  | 'general'
+  | 'warehouse'
 
 export type WorkOrderStatus =
   | 'draft'
