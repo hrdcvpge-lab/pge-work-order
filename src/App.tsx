@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge } from './components/Badge'
 import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
-import { initialWorkOrders, routeTemplates, staffDirectory, teamMembers, workAreas } from './data/mockData'
-import type { ArtworkApprovalStatus, Priority, ProcessStep, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
+import { initialWorkOrders, routeTemplates, staffDirectory as initialStaffDirectory, teamMembers, workAreas } from './data/mockData'
+import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
   artworkApprovalLabels,
+  defectCategoryLabels,
   deriveOrderStatus,
   deriveStepStatus,
   formatDate,
@@ -34,7 +35,7 @@ import {
   typeLabels,
 } from './utils/workOrder'
 
-type View = 'dashboard' | 'orders' | 'station' | 'wip' | 'reports'
+type View = 'dashboard' | 'orders' | 'station' | 'wip' | 'reports' | 'people'
 type ModalState =
   | { type: 'create' }
   | { type: 'schedule'; workOrder: WorkOrder }
@@ -43,6 +44,7 @@ type ModalState =
   | { type: 'hold'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'qc'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'shortfall-action'; workOrder: WorkOrder; shortfall: WorkOrderShortfall }
+  | { type: 'review-shortfall'; workOrder: WorkOrder; shortfall: WorkOrderShortfall }
   | { type: 'manage-artwork'; workOrder: WorkOrder }
   | { type: 'confirm-artwork'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'confirm-close'; workOrder: WorkOrder }
@@ -55,6 +57,7 @@ const NAV: Array<{ id: View; label: string; icon: Parameters<typeof Icon>[0]['na
   { id: 'station', label: 'Stasiun Saya', icon: 'station' },
   { id: 'wip', label: 'WIP', icon: 'boxes' },
   { id: 'reports', label: 'Laporan', icon: 'chart' },
+  { id: 'people', label: 'People & Station', icon: 'user' },
 ]
 
 const CUSTOM_OPTIONS: Array<{ id: 'printing' | 'cutting' | 'lining' | 'zipper' | 'sewing' | 'finishing'; label: string }> = [
@@ -77,7 +80,7 @@ const MACHINE_OPTIONS = [
   'Manual / tidak memakai mesin',
 ]
 
-function getDirectoryName(id: string | undefined, directory: StaffDirectoryMember[] = staffDirectory, fallback = 'Belum ditetapkan') {
+function getDirectoryName(id: string | undefined, directory: StaffDirectoryMember[] = initialStaffDirectory, fallback = 'Belum ditetapkan') {
   if (!id) return fallback
   return directory.find((member) => member.id === id)?.name
     || teamMembers.find((member) => member.id === id)?.name
@@ -139,6 +142,49 @@ function canUseProcess(currentUser: TeamMember, step: ProcessStep) {
 function canViewWorkOrder(currentUser: TeamMember, workOrder: WorkOrder) {
   return hasFullWorkOrderAccess(currentUser)
     || workOrder.steps.some((step) => step.assignedUserId === currentUser.id)
+}
+
+
+function getCombinedDirectory(directory: StaffDirectoryMember[], team: TeamMember[]) {
+  const teamRows: StaffDirectoryMember[] = team
+    .filter((member) => !directory.some((row) => row.id === member.id))
+    .map((member) => ({
+      id: member.id,
+      name: member.name,
+      kind: member.role === 'admin' || member.role === 'ppic' || member.role === 'manager' ? 'planner' : 'staff',
+      isActive: true,
+      allowedStations: member.stations,
+      canReceiveEscalation: ['admin', 'ppic', 'manager'].includes(member.role),
+    }))
+  return [...directory, ...teamRows]
+}
+
+function getEligibleAssignees(station: Station, directory: StaffDirectoryMember[], team: TeamMember[]) {
+  return getCombinedDirectory(directory, team).filter((member) => {
+    if (member.kind !== 'staff' || member.isActive === false) return false
+    return Boolean(member.allowedStations?.includes(station))
+  })
+}
+
+function getEscalationReceivers(directory: StaffDirectoryMember[], team: TeamMember[]) {
+  return getCombinedDirectory(directory, team).filter((member) => member.canReceiveEscalation || member.kind === 'planner')
+}
+
+function readQualityEvidenceFile(file: File): Promise<QualityEvidence> {
+  return new Promise((resolve, reject) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      reject(new Error('Gunakan JPG, PNG, atau WEBP untuk bukti foto.'))
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      reject(new Error('Ukuran bukti foto maksimal 8 MB.'))
+      return
+    }
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Bukti foto tidak dapat dibaca.'))
+    reader.onload = () => resolve({ id: createId('qc-evidence'), name: file.name, dataUrl: String(reader.result), createdAt: new Date().toISOString() })
+    reader.readAsDataURL(file)
+  })
 }
 
 function buildSteps(template: string, qty: number, customRoute: string[]) {
@@ -302,6 +348,7 @@ function buildReplacementSteps(workOrder: WorkOrder, shortfall: WorkOrderShortfa
 
 export default function App() {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>(initialWorkOrders)
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryMember[]>(initialStaffDirectory)
   const [currentUserId, setCurrentUserId] = useState('u-admin')
   const [view, setView] = useState<View>('dashboard')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -318,7 +365,7 @@ export default function App() {
     ...teamMembers,
     ...staffDirectory
       .filter((member) => member.kind === 'staff' && !teamMembers.some((profile) => profile.id === member.id))
-      .map((member) => ({ id: member.id, name: member.name, role: 'operator' as const, stations: [] })),
+      .map((member) => ({ id: member.id, name: member.name, role: 'operator' as const, stations: member.allowedStations || [] })),
   ], [])
   const currentUser = userProfiles.find((member) => member.id === currentUserId) || userProfiles[0]
   const selectedWorkOrder = workOrders.find((order) => order.id === selectedId) || null
@@ -495,7 +542,7 @@ export default function App() {
         </div>
 
         <nav className="side-nav" aria-label="Navigasi Work Order">
-          {NAV.map((item) => (
+          {NAV.filter((item) => item.id !== 'people' || currentUser.role === 'admin').filter((item) => item.id !== 'reports' || ['admin', 'ppic', 'manager'].includes(currentUser.role)).map((item) => (
             <button key={item.id} className={`side-nav__item${view === item.id ? ' side-nav__item--active' : ''}`} onClick={() => setView(item.id)}>
               <Icon name={item.icon} /> <span>{item.label}</span>
             </button>
@@ -512,7 +559,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Kontrol produksi PGE</p>
-            <h1>{view === 'dashboard' ? 'Setiap proses harus terlihat.' : view === 'orders' ? 'Daftar Work Order' : view === 'station' ? 'Stasiun Saya' : view === 'wip' ? 'WIP / Barang Setengah Jadi' : 'Ringkasan Operasional'}</h1>
+            <h1>{view === 'dashboard' ? 'Setiap proses harus terlihat.' : view === 'orders' ? 'Daftar Work Order' : view === 'station' ? 'Stasiun Saya' : view === 'wip' ? 'WIP / Barang Setengah Jadi' : view === 'people' ? 'People & Station Access' : 'Ringkasan Operasional'}</h1>
             <p className="topbar__subtitle">{view === 'dashboard'
               ? 'Prioritaskan pesanan customer, lihat langkah yang benar-benar siap, dan tindak blocker sebelum pekerjaan hilang di tengah proses.'
               : view === 'station'
@@ -654,16 +701,9 @@ export default function App() {
           </section>
         ) : null}
 
-        {view === 'reports' ? (
-          <section className="view-content">
-            <div className="report-grid">
-              <article className="surface-card"><p className="eyebrow">Kepatuhan proses</p><h2>{formatNumber(scopedOrders.filter((order) => order.history.length > 1).length)} WO</h2><span>Sudah punya riwayat selain pembuatan WO.</span></article>
-              <article className="surface-card"><p className="eyebrow">Rework</p><h2>{formatNumber(scopedOrders.reduce((total, order) => total + order.reworkCount, 0))} kejadian</h2><span>Dipakai untuk analisis akar masalah, bukan KPI individu saat ini.</span></article>
-              <article className="surface-card"><p className="eyebrow">Waktu aktif</p><h2>{formatDuration(scopedOrders.reduce((total, order) => total + getOrderActiveSeconds(order, clock), 0))}</h2><span>Data harus stabil sebelum dijadikan dasar evaluasi kinerja.</span></article>
-            </div>
-            <article className="surface-card report-note"><Icon name="warning" /><div><h2>Catatan implementasi</h2><p>Frontend ini menunjukkan bagaimana role, penugasan stasiun, WIP, timer, QC, packing, dan HOLD akan tampil. Data belum aman untuk penggunaan produksi sampai Supabase Auth, Row Level Security, dan database transition function diterapkan.</p></div></article>
-          </section>
-        ) : null}
+        {view === 'reports' ? <ReportsView workOrders={scopedOrders} directory={staffDirectory} team={userProfiles} clock={clock} onOpenOrder={openOrder} /> : null}
+
+        {view === 'people' && currentUser.role === 'admin' ? <PeopleStationView directory={staffDirectory} team={teamMembers} onChange={setStaffDirectory} /> : null}
       </main>
 
       {selectedWorkOrder ? <WorkOrderDrawer
@@ -685,6 +725,7 @@ export default function App() {
         onCancel={() => setModal({ type: 'confirm-cancel', workOrder: selectedWorkOrder })}
         onManageArtwork={() => setModal({ type: 'manage-artwork', workOrder: selectedWorkOrder })}
         onResolveShortfall={(shortfall) => setModal({ type: 'shortfall-action', workOrder: selectedWorkOrder, shortfall })}
+        onReviewShortfall={(shortfall) => setModal({ type: 'review-shortfall', workOrder: selectedWorkOrder, shortfall })}
       /> : null}
 
       {modal?.type === 'create' ? <CreateWorkOrderModal
@@ -721,6 +762,7 @@ export default function App() {
       {modal?.type === 'schedule' ? <ScheduleModal
         workOrder={modal.workOrder}
         staffDirectory={staffDirectory}
+        team={userProfiles}
         onClose={() => setModal(null)}
         onSave={(data) => {
           const plannedSteps = data.steps.map((step, index) => ({ ...step, sequence: index + 1, status: 'not_ready' as const, startedAt: undefined, activeSeconds: 0 }))
@@ -741,10 +783,11 @@ export default function App() {
         workOrder={modal.workOrder}
         step={modal.step}
         staffDirectory={staffDirectory}
+        team={userProfiles}
         onClose={() => setModal(null)}
         onSave={(data) => {
           const updated = updateStep(modal.workOrder, modal.step.id, { assignedUserId: data.assignedUserId, reportToUserId: data.reportToUserId, location: data.location, status: 'ready' })
-          updated.history = [makeHistory(currentUser, `PIC & jalur laporan ditetapkan · ${modal.step.name}`, `PIC ${getDirectoryName(data.assignedUserId)} · Lapor ke ${getDirectoryName(data.reportToUserId)} · Area ${data.location || 'belum diisi'}.`), ...modal.workOrder.history]
+          updated.history = [makeHistory(currentUser, `PIC & jalur laporan ditetapkan · ${modal.step.name}`, `PIC ${getDirectoryName(data.assignedUserId, staffDirectory)} · Lapor ke ${getDirectoryName(data.reportToUserId, staffDirectory)} · Area ${data.location || 'belum diisi'}.`), ...modal.workOrder.history]
           applyOrderUpdate(updated, 'PIC, lapor ke, dan lokasi proses diperbarui.')
           setModal(null)
         }}
@@ -815,6 +858,7 @@ export default function App() {
       {modal?.type === 'qc' ? <QcModal
         workOrder={modal.workOrder}
         step={modal.step}
+        currentUser={currentUser}
         onClose={() => setModal(null)}
         onSave={(data) => {
           const elapsed = modal.step.startedAt ? Math.max(0, Math.floor((Date.now() - new Date(modal.step.startedAt).getTime()) / 1_000)) : 0
@@ -826,6 +870,11 @@ export default function App() {
               activeSeconds: modal.step.activeSeconds + elapsed,
               startedAt: undefined,
               status: modal.step.qtyGood + data.qty + modal.step.qtyReject + data.reject >= modal.step.plannedQty ? 'completed' : 'ready',
+              inspectedQty: (modal.step.inspectedQty || 0) + data.qty + data.reject,
+              defectCategory: data.reject > 0 ? data.defectCategory : modal.step.defectCategory,
+              defectNote: data.note || modal.step.defectNote,
+              defectEvidence: data.evidence?.length ? [...(modal.step.defectEvidence || []), ...data.evidence] : modal.step.defectEvidence,
+              qualityRecordedAt: new Date().toISOString(),
             }
             let updated: WorkOrder = {
               ...modal.workOrder,
@@ -849,6 +898,11 @@ export default function App() {
               activeSeconds: modal.step.activeSeconds + elapsed,
               startedAt: undefined,
               status: modal.step.qtyGood + modal.step.qtyReject + modal.step.qtyRework + data.qty >= modal.step.plannedQty ? 'completed' : 'ready',
+              inspectedQty: (modal.step.inspectedQty || 0) + data.qty,
+              defectCategory: data.defectCategory,
+              defectNote: data.note,
+              defectEvidence: data.evidence?.length ? [...(modal.step.defectEvidence || []), ...data.evidence] : modal.step.defectEvidence,
+              qualityRecordedAt: new Date().toISOString(),
             }
             const reworkOutput = modal.step.inputs[0] || 'Produk siap QC'
             const reworkStep = makeReworkStep(previous || modal.step, data.qty, reworkOutput)
@@ -907,20 +961,65 @@ export default function App() {
             }
             applyOrderUpdate(updated, 'Rute penggantian dibuat dan diberi warna amber sampai target pulih.')
           } else {
-            const nextStatus = data.action === 'short_shipment' ? 'approved_short_shipment' as const : 'cancelled_remaining' as const
+            const requiresManagerApproval = updated.type === 'mto'
+            const nextStatus = requiresManagerApproval
+              ? 'awaiting_approval' as const
+              : (data.action === 'short_shipment' ? 'approved_short_shipment' as const : 'cancelled_remaining' as const)
             updated = {
               ...updated,
               shortfalls: (updated.shortfalls || []).map((item) => item.id === selectedShortfall.id ? {
                 ...item,
                 status: nextStatus,
-                resolvedBy: currentUser.name,
-                resolvedAt: new Date().toISOString(),
-                resolutionNote: data.note,
+                ...(requiresManagerApproval ? {
+                  requestedAction: data.action === 'short_shipment' ? 'short_shipment' as const : 'cancel_remaining' as const,
+                  requestedBy: currentUser.name,
+                  requestedAt: new Date().toISOString(),
+                  resolutionNote: data.note,
+                } : {
+                  resolvedBy: currentUser.name,
+                  resolvedAt: new Date().toISOString(),
+                  resolutionNote: data.note,
+                }),
               } : item),
-              history: [makeHistory(currentUser, data.action === 'short_shipment' ? 'Pengiriman kurang disetujui' : 'Sisa WO dibatalkan', `${selectedShortfall.qty} unit dari ${selectedShortfall.sourceStepName}. ${data.note}`), ...updated.history],
+              history: [makeHistory(currentUser, requiresManagerApproval ? 'Permohonan keputusan MTO diajukan' : (data.action === 'short_shipment' ? 'Pengiriman kurang disetujui' : 'Sisa WO dibatalkan'), `${selectedShortfall.qty} unit dari ${selectedShortfall.sourceStepName}. ${data.note}`), ...updated.history],
             }
-            applyOrderUpdate(updated, data.action === 'short_shipment' ? 'Kekurangan disetujui sebagai pengiriman kurang.' : 'Sisa kuantitas dibatalkan oleh Admin / PPIC.')
+            applyOrderUpdate(updated, requiresManagerApproval ? 'Permohonan MTO dikirim ke Manager / Owner untuk persetujuan.' : (data.action === 'short_shipment' ? 'Kekurangan disetujui sebagai pengiriman kurang.' : 'Sisa kuantitas dibatalkan.'))
           }
+          setModal(null)
+        }}
+      /> : null}
+
+      {modal?.type === 'review-shortfall' ? <ReviewShortfallModal
+        workOrder={modal.workOrder}
+        shortfall={modal.shortfall}
+        onClose={() => setModal(null)}
+        onSave={(data) => {
+          const requested = modal.workOrder.shortfalls?.find((item) => item.id === modal.shortfall.id)
+          if (!requested) return
+          const approvedStatus = requested.requestedAction === 'short_shipment' ? 'approved_short_shipment' as const : 'cancelled_remaining' as const
+          const updated: WorkOrder = {
+            ...modal.workOrder,
+            shortfalls: (modal.workOrder.shortfalls || []).map((item) => item.id === requested.id ? (data.approved ? {
+              ...item,
+              status: approvedStatus,
+              decisionBy: currentUser.name,
+              decisionAt: new Date().toISOString(),
+              resolvedBy: currentUser.name,
+              resolvedAt: new Date().toISOString(),
+              resolutionNote: data.note,
+            } : {
+              ...item,
+              status: 'action_required' as const,
+              requestedAction: undefined,
+              requestedBy: undefined,
+              requestedAt: undefined,
+              decisionBy: currentUser.name,
+              decisionAt: new Date().toISOString(),
+              resolutionNote: `Permohonan ditolak: ${data.note}`,
+            }) : item),
+            history: [makeHistory(currentUser, data.approved ? 'Permohonan kekurangan disetujui' : 'Permohonan kekurangan ditolak', `${requested.qty} unit · ${data.note}`), ...modal.workOrder.history],
+          }
+          applyOrderUpdate(updated, data.approved ? 'Keputusan Manager / Owner tersimpan.' : 'Permohonan ditolak dan kembali ke Admin / PPIC untuk ditindaklanjuti.')
           setModal(null)
         }}
       /> : null}
@@ -1266,9 +1365,10 @@ function ConfirmArtworkModal({ workOrder, step, onClose, onConfirm }: { workOrde
   </Modal>
 }
 
-function ScheduleModal({ workOrder, staffDirectory: directory, onClose, onSave }: {
+function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, onSave }: {
   workOrder: WorkOrder
   staffDirectory: StaffDirectoryMember[]
+  team: TeamMember[]
   onClose: () => void
   onSave: (data: { machine: string; scheduledDate: string; steps: ProcessStep[] }) => void
 }) {
@@ -1316,8 +1416,8 @@ function ScheduleModal({ workOrder, staffDirectory: directory, onClose, onSave }
             <div className="deployment-step__sequence">P{String(index + 1).padStart(2, '0')}</div>
             <div className="deployment-step__process"><b>{step.name}</b><span>{step.inputs.length ? `Butuh: ${step.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {step.output}</span></div>
             <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station, location: defaultLocationForStation(event.target.value as Station) })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-            <label><span>PIC pelaksana *</span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Hanya PIC yang dipilih yang dapat melihat dan menjalankan tiket ini.</small></label>
-            <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{directory.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+            <label><span>PIC pelaksana *</span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Hanya PIC yang dipilih yang dapat melihat dan menjalankan tiket ini. Jika daftar kosong, atur akses personel di menu People & Station.</small></label>
+            <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
             <label><span>Area kerja / laporan hasil *</span><select value={step.location || ''} onChange={(event) => updatePlan(step.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
           </article>)}
         </div>
@@ -1328,15 +1428,15 @@ function ScheduleModal({ workOrder, staffDirectory: directory, onClose, onSave }
   </Modal>
 }
 
-function AssignProcessModal({ workOrder, step, staffDirectory: directory, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; staffDirectory: StaffDirectoryMember[]; onClose: () => void; onSave: (data: { assignedUserId: string; reportToUserId: string; location: string }) => void }) {
+function AssignProcessModal({ workOrder, step, staffDirectory: directory, team, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; staffDirectory: StaffDirectoryMember[]; team: TeamMember[]; onClose: () => void; onSave: (data: { assignedUserId: string; reportToUserId: string; location: string }) => void }) {
   const [assignedUserId, setAssignedUserId] = useState(step.assignedUserId || '')
   const [reportToUserId, setReportToUserId] = useState(step.reportToUserId || 'u-ppic')
   const [location, setLocation] = useState(step.location || defaultLocationForStation(step.station))
   return <Modal title="Atur PIC & jalur laporan" subtitle="Gunakan daftar Team PGE agar penugasan konsisten. Perubahan ini hanya boleh sebelum proses mempunyai hasil atau timer." onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ assignedUserId, reportToUserId, location }) }}>
       <div className="callout"><Icon name="station" /><span><b>{workOrder.code}</b> · {step.name} · {stationLabels[step.station]}</span></div>
-      <label><span>PIC pelaksana</span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Tiket proses hanya tampil pada akun PIC yang dipilih.</small></label>
-      <label><span>Lapor ke</span><select required value={reportToUserId} onChange={(event) => setReportToUserId(event.target.value)}><option value="">Pilih penerima laporan</option>{directory.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+      <label><span>PIC pelaksana</span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Tiket proses hanya tampil pada akun PIC yang dipilih. Personel harus diaktifkan untuk stasiun ini di People & Station.</small></label>
+      <label><span>Lapor ke</span><select required value={reportToUserId} onChange={(event) => setReportToUserId(event.target.value)}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
       <label><span>Area kerja / laporan hasil</span><select required value={location} onChange={(event) => setLocation(event.target.value)}><option value="">Pilih area</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Simpan penugasan</button></footer>
     </form>
@@ -1368,17 +1468,41 @@ function HoldModal({ step, onClose, onSave }: { step: ProcessStep; onClose: () =
   </Modal>
 }
 
-function QcModal({ workOrder, step, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; onClose: () => void; onSave: (data: { decision: 'pass' | 'rework'; qty: number; reject: number; note: string }) => void }) {
+function QcModal({ workOrder, step, currentUser, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; currentUser: TeamMember; onClose: () => void; onSave: (data: { decision: 'pass' | 'rework'; qty: number; reject: number; note: string; defectCategory: DefectCategory; evidence?: QualityEvidence[] }) => void }) {
   const cap = Math.min(step.plannedQty - getStepRecordedQty(step), getAvailableInputCap(workOrder, step))
   const [decision, setDecision] = useState<'pass' | 'rework'>('pass')
   const [qty, setQty] = useState(cap)
   const [reject, setReject] = useState(0)
   const [note, setNote] = useState('')
-  return <Modal title="Keputusan QC" subtitle="Produk yang lulus masuk antrean packing. Produk yang perlu rework akan membuat langkah perbaikan baru dan kembali ke produksi." onClose={onClose}>
-    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ decision, qty, reject: decision === 'pass' ? reject : 0, note }) }}>
+  const [defectCategory, setDefectCategory] = useState<DefectCategory>('other')
+  const [evidence, setEvidence] = useState<QualityEvidence[]>([])
+  const [evidenceError, setEvidenceError] = useState('')
+  const needsDefect = decision === 'rework' || reject > 0
+
+  const addEvidence = async (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    setEvidenceError('')
+    try {
+      const item = await readQualityEvidenceFile(file)
+      setEvidence((current) => [...current, item].slice(0, 3))
+    } catch (error) {
+      setEvidenceError(error instanceof Error ? error.message : 'Bukti foto tidak dapat ditambahkan.')
+    }
+  }
+
+  return <Modal title="Keputusan QC" subtitle="Produk yang lulus masuk antrean packing. Produk rework kembali ke proses sebelumnya. Foto bukti defect opsional, tetapi sangat disarankan untuk kasus berulang atau reject final." onClose={onClose}>
+    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ decision, qty, reject: decision === 'pass' ? reject : 0, note, defectCategory, evidence }) }}>
       <div className="segmented-control"><button type="button" className={decision === 'pass' ? 'is-active' : ''} onClick={() => setDecision('pass')}>Lulus QC</button><button type="button" className={decision === 'rework' ? 'is-active' : ''} onClick={() => setDecision('rework')}>Kembali ke rework</button></div>
       <div className="result-summary"><div><span>WIP siap diperiksa</span><b>{formatNumber(cap)}</b></div><div><span>Qty keputusan</span><b>{formatNumber(qty)}</b></div><div><span>Reject final</span><b>{decision === 'pass' ? formatNumber(reject) : '—'}</b></div></div>
       <div className="form-grid"><label><span>{decision === 'pass' ? 'Qty lulus QC' : 'Qty dikembalikan'}</span><input min="1" max={cap} type="number" value={qty} onChange={(event) => setQty(Number(event.target.value))} /></label>{decision === 'pass' ? <label><span>Reject final</span><input min="0" max={cap - qty} type="number" value={reject} onChange={(event) => setReject(Number(event.target.value))} /></label> : <label><span>Tujuan rework</span><input disabled value="Kembali ke stasiun proses sebelumnya" /></label>}</div>
+      {needsDefect ? <div className="quality-capture-panel">
+        <div className="quality-capture-panel__head"><b>Detail defect</b><span>Wajib pilih kategori bila ada rework atau reject</span></div>
+        <div className="form-grid"><label><span>Kategori defect</span><select value={defectCategory} onChange={(event) => setDefectCategory(event.target.value as DefectCategory)}>{Object.entries(defectCategoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>QC officer</span><input disabled value={currentUser.name} /></label></div>
+        <label><span>Foto bukti · opsional</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void addEvidence(event.target.files); event.currentTarget.value = '' }} /><small>Tambahkan bila perlu untuk memperjelas defect. Tidak menghalangi proses QC bila tidak ada foto.</small></label>
+        {evidence.length ? <div className="quality-evidence-preview">{evidence.map((item) => <figure key={item.id}><img src={item.dataUrl} alt={item.name} /><figcaption>{item.name}<button type="button" onClick={() => setEvidence((current) => current.filter((row) => row.id !== item.id))}>×</button></figcaption></figure>)}</div> : null}
+        {evidenceError ? <p className="artwork-upload__error">{evidenceError}</p> : null}
+      </div> : null}
       <label><span>Catatan QC</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={decision === 'pass' ? 'Contoh: jahitan, resleting, dan cetak sesuai sample.' : 'Contoh: 4 unit resleting tidak lurus, kembalikan ke jahit.'} /></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" disabled={qty <= 0 || qty > cap || (decision === 'pass' && qty + reject > cap)} className={`button ${decision === 'pass' ? 'button--primary' : 'button--warning'}`}>{decision === 'pass' ? 'Simpan lulus QC' : 'Buat rework'}</button></footer>
     </form>
@@ -1434,6 +1558,115 @@ function ShortfallActionModal({
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className={`button ${action === 'replacement' ? 'button--warning' : action === 'short_shipment' ? 'button--primary' : 'button--danger'}`}>{action === 'replacement' ? 'Buat rute penggantian' : action === 'short_shipment' ? 'Setujui kirim kurang' : 'Batalkan sisa'}</button></footer>
     </form>
   </Modal>
+}
+
+function ReviewShortfallModal({ workOrder, shortfall, onClose, onSave }: { workOrder: WorkOrder; shortfall: WorkOrderShortfall; onClose: () => void; onSave: (data: { approved: boolean; note: string }) => void }) {
+  const [approved, setApproved] = useState(true)
+  const [note, setNote] = useState(shortfall.resolutionNote || '')
+  const actionLabel = shortfall.requestedAction === 'cancel_remaining' ? 'batalkan sisa' : 'kirim kurang'
+  return <Modal title="Tinjau permohonan kekurangan MTO" subtitle="Untuk pesanan customer, kirim kurang atau pembatalan sisa memerlukan persetujuan Manager / Owner. Foto bukti QC tetap opsional; keputusan harus memakai catatan tertulis." onClose={onClose}>
+    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ approved, note }) }}>
+      <div className="shortfall-action-modal__summary"><div><span>WO</span><b>{workOrder.code}</b></div><div><span>Jumlah</span><b>{formatNumber(shortfall.qty)} unit</b></div><div><span>Permohonan</span><b>{actionLabel}</b></div></div>
+      <div className="callout callout--warning"><Icon name="warning" /><span><b>Diminta oleh {shortfall.requestedBy || 'Admin / PPIC'}.</b> {shortfall.resolutionNote || shortfall.note || 'Tidak ada catatan tambahan.'}</span></div>
+      <div className="segmented-control"><button type="button" className={approved ? 'is-active' : ''} onClick={() => setApproved(true)}>Setujui</button><button type="button" className={!approved ? 'is-active' : ''} onClick={() => setApproved(false)}>Tolak & kembalikan ke Admin/PPIC</button></div>
+      <label><span>Catatan keputusan</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={approved ? 'Contoh: customer menyetujui pengiriman kurang melalui WA tanggal 07 Juli.' : 'Contoh: lanjutkan dengan produksi penggantian karena target customer tetap harus dipenuhi.'} /></label>
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className={`button ${approved ? 'button--primary' : 'button--danger'}`}>{approved ? 'Simpan persetujuan' : 'Tolak permohonan'}</button></footer>
+    </form>
+  </Modal>
+}
+
+type ReportTab = 'daily' | 'overdue' | 'defects' | 'wip-aging' | 'operator' | 'machine' | 'customer'
+
+function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { workOrders: WorkOrder[]; directory: StaffDirectoryMember[]; team: TeamMember[]; clock: number; onOpenOrder: (order: WorkOrder) => void }) {
+  const [tab, setTab] = useState<ReportTab>('daily')
+  const [typeFilter, setTypeFilter] = useState<'all' | WorkOrderType>('all')
+  const [stationFilter, setStationFilter] = useState<'all' | Station>('all')
+  const [search, setSearch] = useState('')
+  const directoryRows = getCombinedDirectory(directory, team)
+  const nameOf = (id?: string) => getDirectoryName(id, directoryRows, 'Belum ditugaskan')
+  const needle = search.trim().toLowerCase()
+  const filtered = workOrders.filter((order) => (typeFilter === 'all' || order.type === typeFilter) && (!needle || `${order.code} ${order.product} ${order.source}`.toLowerCase().includes(needle)))
+  const stepMatches = (step: ProcessStep) => stationFilter === 'all' || step.station === stationFilter
+  const todayText = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
+  const dailyRows = filtered.flatMap((order) => order.steps.filter(stepMatches).filter((step) => step.qtyGood || step.qtyReject || step.qtyRework || deriveStepStatus(order, step) === 'in_progress').map((step) => ({ order, step })))
+  const overdueRows = filtered.filter(isOverdue)
+  const defectRows = filtered.flatMap((order) => order.steps.filter(stepMatches).filter((step) => step.qtyReject > 0 || step.qtyRework > 0 || step.defectCategory).map((step) => ({ order, step })))
+  const wipRows = filtered.flatMap((order) => Array.from(new Set(order.steps.flatMap((step) => step.inputs))).map((input) => ({ order, input, available: getWipBalance(order, input) })).filter((row) => row.available > 0)).filter((row) => stationFilter === 'all' || row.order.steps.some((step) => step.station === stationFilter && step.inputs.includes(row.input)))
+  type OperatorWorkload = { id: string; assigned: number; active: number; queued: number; overdue: number; seconds: number }
+  const operatorMap = new Map<string, OperatorWorkload>()
+  // Recompute workload without assuming a static employee master.
+  filtered.forEach((order) => order.steps.filter(stepMatches).forEach((step) => {
+    if (!step.assignedUserId) return
+    const row = operatorMap.get(step.assignedUserId) || { id: step.assignedUserId, assigned: 0, active: 0, queued: 0, overdue: 0, seconds: 0 }
+    row.assigned += 1
+    if (deriveStepStatus(order, step) === 'in_progress') row.active += 1
+    if (deriveStepStatus(order, step) === 'ready') row.queued += 1
+    if (isOverdue(order) && !['completed'].includes(deriveStepStatus(order, step))) row.overdue += 1
+    row.seconds += getOrderActiveSeconds({ ...order, steps: [step] }, clock)
+    operatorMap.set(step.assignedUserId, row)
+  }))
+  const operatorRows = Array.from(operatorMap.values())
+  const machineRows = Array.from(new Map(filtered.map((order) => [order.machine || 'Belum ditetapkan', { machine: order.machine || 'Belum ditetapkan', orders: 0, active: 0, overdue: 0, seconds: 0 }])).values())
+  filtered.forEach((order) => {
+    const row = machineRows.find((item) => item.machine === (order.machine || 'Belum ditetapkan'))
+    if (!row) return
+    row.orders += 1
+    if (order.steps.some((step) => deriveStepStatus(order, step) === 'in_progress')) row.active += 1
+    if (isOverdue(order)) row.overdue += 1
+    row.seconds += getOrderActiveSeconds(order, clock)
+  })
+
+  const tabs: Array<{ id: ReportTab; label: string }> = [
+    { id: 'daily', label: 'Produksi Harian' },
+    { id: 'overdue', label: 'WO Terlambat' },
+    { id: 'defects', label: 'Reject & Defect' },
+    { id: 'wip-aging', label: 'WIP Aging' },
+    { id: 'operator', label: 'Beban Operator' },
+    { id: 'machine', label: 'Beban Mesin' },
+    { id: 'customer', label: 'Penyelesaian Customer' },
+  ]
+
+  return <section className="view-content reports-view">
+    <div className="report-grid report-grid--metrics">
+      <article className="surface-card"><p className="eyebrow">WO aktif</p><h2>{formatNumber(filtered.filter((order) => !['done', 'closed', 'cancelled'].includes(deriveOrderStatus(order))).length)}</h2><span>Scope laporan saat ini</span></article>
+      <article className="surface-card"><p className="eyebrow">Reject tercatat</p><h2>{formatNumber(defectRows.reduce((sum, row) => sum + row.step.qtyReject, 0))}</h2><span>Termasuk reject proses dan QC</span></article>
+      <article className="surface-card"><p className="eyebrow">Menunggu persetujuan</p><h2>{formatNumber(filtered.reduce((sum, order) => sum + getShortfallSummary(order).awaitingApprovalQty, 0))}</h2><span>Kekurangan MTO perlu Manager / Owner</span></article>
+      <article className="surface-card"><p className="eyebrow">Periode</p><h2>{todayText}</h2><span>Snapshot data frontend saat ini</span></article>
+    </div>
+
+    <article className="surface-card report-workspace">
+      <header className="surface-card__header"><div><p className="eyebrow">Laporan operasional</p><h2>{tabs.find((item) => item.id === tab)?.label}</h2><span>Filter dan buka WO untuk menelusuri detail. Data hasil produksi masih berbasis sesi frontend sampai Supabase tersambung.</span></div><button type="button" className="button button--secondary button--compact" onClick={() => window.print()}>Cetak laporan</button></header>
+      <div className="report-tabs">{tabs.map((item) => <button type="button" className={tab === item.id ? 'is-active' : ''} onClick={() => setTab(item.id)} key={item.id}>{item.label}</button>)}</div>
+      <div className="filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari WO, produk, atau customer" /></label><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="all">Semua tipe WO</option><option value="mto">MTO · Pesanan customer</option><option value="mts">MTS · Buat stok</option></select><select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)}><option value="all">Semua stasiun</option>{Object.entries(stationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+
+      {tab === 'daily' ? <ReportTable headers={['WO / Produk', 'Stasiun / PIC', 'Output', 'Status', 'Catatan']} rows={dailyRows.map(({ order, step }) => [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><Badge kind="station" value={step.station} /><small>{nameOf(step.assignedUserId)}</small></span>, <span><b>{formatNumber(step.qtyGood)}</b> baik · {formatNumber(step.qtyRework)} rework · {formatNumber(step.qtyReject)} reject</span>, <Badge kind="process" value={deriveStepStatus(order, step)} />, <span>{step.defectCategory ? defectCategoryLabels[step.defectCategory] : step.holdReason || 'Aktivitas / output saat ini'}</span>])} empty="Belum ada output atau proses aktif pada filter ini." /> : null}
+      {tab === 'overdue' ? <ReportTable headers={['WO', 'Target selesai', 'Proses saat ini', 'PIC', 'Blocker']} rows={overdueRows.map((order) => { const step = getCurrentProcess(order); return [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><b>{formatDate(order.dueDate)}</b><small>{Math.max(1, Math.ceil((Date.now() - new Date(`${order.dueDate}T23:59:59`).getTime()) / 86400000))} hari terlambat</small></span>, step ? <span><Badge kind="station" value={step.station} /><small>{step.name}</small></span> : '—', step ? nameOf(step.assignedUserId) : '—', getBlockerSummary(order) || 'Tidak ada blocker aktif'] })} empty="Tidak ada WO terlambat pada filter ini." /> : null}
+      {tab === 'defects' ? <ReportTable headers={['WO', 'Stasiun / PIC', 'Kategori defect', 'Rework / reject', 'Bukti foto']} rows={defectRows.map(({ order, step }) => [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><Badge kind="station" value={step.station} /><small>{nameOf(step.assignedUserId)}</small></span>, step.defectCategory ? defectCategoryLabels[step.defectCategory] : 'Belum dikategorikan', <span>{formatNumber(step.qtyRework)} rework · <b>{formatNumber(step.qtyReject)} reject</b></span>, step.defectEvidence?.length ? <span className="evidence-thumb-row">{step.defectEvidence.map((item) => <img key={item.id} src={item.dataUrl} alt={item.name} title={item.name} />)}</span> : <span className="muted-copy">Tidak ada foto · opsional</span>])} empty="Belum ada defect atau reject pada filter ini." /> : null}
+      {tab === 'wip-aging' ? <ReportTable headers={['WIP', 'WO / Produk', 'Qty tersedia', 'Langkah berikutnya', 'Usia WO']} rows={wipRows.map((row) => { const next = row.order.steps.find((step) => step.inputs.includes(row.input) && deriveStepStatus(row.order, step) !== 'completed'); const age = Math.max(0, Math.floor((Date.now() - new Date(row.order.createdAt).getTime()) / 86400000)); return [row.input, <button className="text-button" onClick={() => onOpenOrder(row.order)}>{row.order.code}<small>{row.order.product}</small></button>, formatNumber(row.available), next ? <span><Badge kind="station" value={next.station} /><small>{next.name}</small></span> : 'Tidak ada', <span className={age >= 2 ? 'text-danger' : ''}>{age} hari</span>] })} empty="Tidak ada WIP aktif pada filter ini." /> : null}
+      {tab === 'operator' ? <ReportTable headers={['PIC', 'Proses ditugaskan', 'Aktif', 'Siap antre', 'Terlambat', 'Waktu aktif']} rows={operatorRows.sort((a, b) => b.active - a.active || b.assigned - a.assigned).map((row) => [nameOf(row.id), row.assigned, row.active, row.queued, <span className={row.overdue ? 'text-danger' : ''}>{row.overdue}</span>, formatDuration(row.seconds)])} empty="Belum ada penugasan PIC pada filter ini." /> : null}
+      {tab === 'machine' ? <ReportTable headers={['Mesin / resource', 'WO terjadwal', 'WO aktif', 'WO terlambat', 'Waktu aktif']} rows={machineRows.sort((a, b) => b.active - a.active || b.orders - a.orders).map((row) => [row.machine, row.orders, row.active, <span className={row.overdue ? 'text-danger' : ''}>{row.overdue}</span>, formatDuration(row.seconds)])} empty="Belum ada WO pada filter ini." /> : null}
+      {tab === 'customer' ? <ReportTable headers={['Customer / sumber', 'WO', 'Target', 'Terpacking', 'Status penyelesaian']} rows={filtered.filter((order) => order.type === 'mto').map((order) => { const summary = getShortfallSummary(order); return [order.source, <button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, formatNumber(order.qty), formatNumber(summary.packedGood), <span><b>{formatNumber(getProgress(order))}%</b><small>{getBlockerSummary(order) || statusLabels[deriveOrderStatus(order)]}</small></span>] })} empty="Tidak ada WO customer pada filter ini." /> : null}
+    </article>
+  </section>
+}
+
+function ReportTable({ headers, rows, empty }: { headers: string[]; rows: ReactNode[][]; empty: string }) {
+  return <div className="table-wrap report-table-wrap"><table className="wo-table report-table"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>) : <tr><td colSpan={headers.length}><div className="empty-state">{empty}</div></td></tr>}</tbody></table></div>
+}
+
+function PeopleStationView({ directory, team, onChange }: { directory: StaffDirectoryMember[]; team: TeamMember[]; onChange: (next: StaffDirectoryMember[]) => void }) {
+  const [search, setSearch] = useState('')
+  const [notice, setNotice] = useState('')
+  const planners = getEscalationReceivers(directory, team)
+  const rows = directory.filter((member) => member.kind === 'staff').filter((member) => `${member.name} ${member.employeeNumber || ''}`.toLowerCase().includes(search.toLowerCase()))
+  const update = (id: string, patch: Partial<StaffDirectoryMember>) => {
+    onChange(directory.map((member) => member.id === id ? { ...member, ...patch } : member))
+    setNotice('Perubahan akses tersimpan di sesi frontend ini.')
+  }
+  return <section className="view-content people-station-view">
+    <article className="surface-card people-station-intro"><header className="surface-card__header"><div><p className="eyebrow">Konfigurasi Admin</p><h2>People & Station Access</h2><span>Atur stasiun yang boleh dikerjakan setiap anggota. PIC dropdown di perencanaan WO hanya menampilkan anggota yang aktif dan eligible untuk stasiun tersebut.</span></div><Badge kind="plain" value={`${rows.length} anggota`} /></header><div className="callout"><Icon name="warning" /><span><b>Kontrol akses frontend:</b> ini membatasi pilihan PIC dan tampilan tugas demo. Saat Supabase dipasang, aturan yang sama harus dipindahkan ke tabel user_stations dan Row Level Security.</span></div>{notice ? <p className="success-note">{notice}</p> : null}</article>
+    <article className="surface-card"><div className="filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau nomor karyawan" /></label></div><div className="people-grid">{rows.map((member) => <article className={`person-access-card${member.isActive === false ? ' person-access-card--inactive' : ''}`} key={member.id}><header><div><b>{member.name}</b><small>{member.employeeNumber || 'Tanpa nomor karyawan'}</small></div><label className="switch-field"><input type="checkbox" checked={member.isActive !== false} onChange={(event) => update(member.id, { isActive: event.target.checked })} /><span>Aktif</span></label></header><section><span className="people-label">Stasiun yang diperbolehkan</span><div className="station-check-grid">{Object.entries(stationLabels).map(([station, label]) => { const code = station as Station; const checked = member.allowedStations?.includes(code) || false; return <label key={station}><input type="checkbox" checked={checked} onChange={(event) => update(member.id, { allowedStations: event.target.checked ? [...new Set([...(member.allowedStations || []), code])] : (member.allowedStations || []).filter((item) => item !== code) })} />{label}</label> })}</div></section><section className="form-grid"><label><span>Default lapor ke</span><select value={member.defaultReportToUserId || 'u-ppic'} onChange={(event) => update(member.id, { defaultReportToUserId: event.target.value })}>{planners.map((planner) => <option key={planner.id} value={planner.id}>{planner.name}</option>)}</select></label><label><span>Default area</span><select value={member.defaultWorkArea || ''} onChange={(event) => update(member.id, { defaultWorkArea: event.target.value })}><option value="">Pilih saat perencanaan</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label></section><label className="switch-field switch-field--line"><input type="checkbox" checked={member.canReceiveEscalation || false} onChange={(event) => update(member.id, { canReceiveEscalation: event.target.checked })} /><span>Boleh menjadi penerima laporan / eskalasi</span></label></article>)}</div></article>
+  </section>
 }
 
 function ConfirmModal({ title, description, confirmLabel, danger = false, onClose, onConfirm }: { title: string; description: string; confirmLabel: string; danger?: boolean; onClose: () => void; onConfirm: () => void }) {
