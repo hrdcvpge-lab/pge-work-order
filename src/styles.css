@@ -521,3 +521,32 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 .success-note { margin:12px 0 0; padding:10px 12px; background:var(--green-lt); border:1px solid #b8edc7; color:#166534; border-radius:7px; font-size:11px; }
 @media(max-width:1200px){ .report-grid--metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:760px){ .people-grid { grid-template-columns:1fr; padding:14px; } .station-check-grid { grid-template-columns:1fr; } .report-grid--metrics { grid-template-columns:1fr; } }
+
+
+/* v0.3.0 — Supabase phone + PIN access */
+.auth-shell { min-height:100vh; display:grid; place-items:center; padding:28px; background:radial-gradient(circle at 18% 18%, rgba(255,187,0,.14), transparent 29%), radial-gradient(circle at 82% 82%, rgba(255,187,0,.08), transparent 25%), #111; }
+.auth-card { width:min(100%, 440px); border:1px solid #2d2d2d; border-radius:16px; padding:28px; background:#181818; color:#f7f7f2; box-shadow:0 26px 80px rgba(0,0,0,.34); }
+.auth-card--loading, .auth-card--error { text-align:center; }
+.auth-card--error { border-color:#6d4b0d; }
+.auth-card__brand { display:flex; align-items:center; gap:12px; padding-bottom:22px; border-bottom:1px solid #303030; }
+.auth-card__brand > div > span { display:block; color:#a5a5a0; font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.auth-card__brand h1 { margin:4px 0 0; font-size:21px; letter-spacing:-.045em; }
+.auth-mark { display:grid; width:48px; height:48px; place-items:center; border-radius:12px; background:#ffbb00; color:#111; font-size:14px; font-weight:950; letter-spacing:-.06em; }
+.auth-card__intro { padding:23px 0 18px; }
+.auth-card__eyebrow { margin:0 0 7px; color:#ffbb00; font-size:10px; font-weight:900; letter-spacing:.13em; text-transform:uppercase; }
+.auth-card h2, .auth-card h1 { margin:0; font-size:23px; letter-spacing:-.045em; }
+.auth-card__intro > p:last-child, .auth-card--loading p, .auth-card--error p { margin:9px 0 0; color:#a7a7a1; font-size:12px; line-height:1.65; }
+.auth-form { display:grid; gap:14px; }
+.auth-form label { display:grid; gap:7px; color:#d9d9d2; font-size:11px; font-weight:800; }
+.auth-form input { width:100%; min-height:46px; border:1px solid #3a3a3a; border-radius:9px; padding:0 13px; background:#111; color:#f7f7f2; font-size:14px; }
+.auth-form input::placeholder { color:#6f6f69; }
+.auth-submit { min-height:46px; margin-top:4px; border:0; border-radius:9px; background:#ffbb00; color:#111; font-weight:900; font-size:13px; }
+.auth-submit:hover:not(:disabled) { background:#ffd15a; }
+.auth-message { margin:0; border:1px solid #825014; border-radius:8px; padding:9px 10px; background:#35260f; color:#ffd88a; font-size:11px; line-height:1.5; }
+.auth-card__help { display:grid; gap:4px; margin-top:21px; border-top:1px solid #303030; padding-top:17px; color:#9d9d97; font-size:10px; line-height:1.55; }
+.auth-card__help b { color:#d2d2ca; font-size:10px; }
+.auth-loader { display:block; width:28px; height:28px; margin:21px auto 0; border:3px solid #3b3b36; border-top-color:#ffbb00; border-radius:50%; animation:auth-spin .8s linear infinite; }
+@keyframes auth-spin { to { transform:rotate(360deg); } }
+.user-switcher--authenticated { gap:8px; }
+.user-switcher--authenticated .button { white-space:nowrap; }
+@media (max-width:620px) { .auth-shell { padding:18px; align-items:start; }.auth-card { margin-top:42px; padding:22px; }.topbar__user { align-items:center; }.topbar__user .button { margin-left:auto; } }

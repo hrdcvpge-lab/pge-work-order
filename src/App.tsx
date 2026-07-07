@@ -346,10 +346,14 @@ function buildReplacementSteps(workOrder: WorkOrder, shortfall: WorkOrderShortfa
   }))
 }
 
-export default function App() {
+type AppProps = {
+  currentUser: TeamMember
+  onSignOut: () => void
+}
+
+export default function App({ currentUser, onSignOut }: AppProps) {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>(initialWorkOrders)
   const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryMember[]>(initialStaffDirectory)
-  const [currentUserId, setCurrentUserId] = useState('u-admin')
   const [view, setView] = useState<View>('dashboard')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
@@ -359,15 +363,12 @@ export default function App() {
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
 
-  // Every name in Team PGE can be selected in this frontend simulation. In production,
-  // the same `id` will come from Supabase Auth, not from this selector.
-  const userProfiles = useMemo<TeamMember[]>(() => [
-    ...teamMembers,
-    ...staffDirectory
-      .filter((member) => member.kind === 'staff' && !teamMembers.some((profile) => profile.id === member.id))
-      .map((member) => ({ id: member.id, name: member.name, role: 'operator' as const, stations: member.allowedStations || [] })),
-  ], [])
-  const currentUser = userProfiles.find((member) => member.id === currentUserId) || userProfiles[0]
+  // The active user now comes from Supabase Auth. The remaining Work Order content is
+  // demonstration data until the next release reads and writes real Supabase records.
+  const teamForViews = useMemo<TeamMember[]>(
+    () => [currentUser, ...teamMembers.filter((member) => member.id !== currentUser.id)],
+    [currentUser],
+  )
   const selectedWorkOrder = workOrders.find((order) => order.id === selectedId) || null
 
   useEffect(() => {
@@ -551,7 +552,7 @@ export default function App() {
 
         <div className="sidebar__note">
           <b>Fase frontend</b>
-          <span>Role dan data masih simulasi. Saat Supabase terhubung, tombol akan mengikuti login serta penugasan stasiun sebenarnya.</span>
+          <span>Login dan role sudah terverifikasi melalui Supabase. Data WO masih memakai demo sampai koneksi data produksi dirilis.</span>
         </div>
       </aside>
 
@@ -564,16 +565,14 @@ export default function App() {
               ? 'Prioritaskan pesanan customer, lihat langkah yang benar-benar siap, dan tindak blocker sebelum pekerjaan hilang di tengah proses.'
               : view === 'station'
                 ? 'Tampilan mobile-first untuk pekerjaan yang memang ditugaskan kepada pengguna aktif.'
-                : 'Frontend demo dengan alur proses dan WIP. Data akan tersimpan permanen setelah backend Supabase dihubungkan.'}</p>
+                : 'Login memakai akun Supabase. Data Work Order di layar ini masih demo sampai rilis koneksi data produksi berikutnya.'}</p>
           </div>
           <div className="topbar__actions">
-            <label className="user-switcher">
+            <div className="user-switcher user-switcher--authenticated">
               <Icon name="user" />
-              <span><b>{currentUser.name}</b><small>{roleLabels[currentUser.role]}</small></span>
-              <select aria-label="Pilih pengguna demo" value={currentUserId} onChange={(event) => setCurrentUserId(event.target.value)}>
-                {userProfiles.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
-              </select>
-            </label>
+              <span><b>{currentUser.name}</b><small>{currentUser.role === 'admin' || currentUser.role === 'ppic' ? `${roleLabels[currentUser.role]} · Supabase verified` : roleLabels[currentUser.role]}</small></span>
+              <button className="button button--secondary button--compact" type="button" onClick={onSignOut}>Keluar</button>
+            </div>
             {currentUser.role === 'admin' ? <button className="button button--primary" onClick={() => setModal({ type: 'create' })}><Icon name="plus" /> Buat WO</button> : null}
           </div>
         </header>
@@ -701,15 +700,15 @@ export default function App() {
           </section>
         ) : null}
 
-        {view === 'reports' ? <ReportsView workOrders={scopedOrders} directory={staffDirectory} team={userProfiles} clock={clock} onOpenOrder={openOrder} /> : null}
+        {view === 'reports' ? <ReportsView workOrders={scopedOrders} directory={staffDirectory} team={teamForViews} clock={clock} onOpenOrder={openOrder} /> : null}
 
-        {view === 'people' && currentUser.role === 'admin' ? <PeopleStationView directory={staffDirectory} team={teamMembers} onChange={setStaffDirectory} /> : null}
+        {view === 'people' && currentUser.role === 'admin' ? <PeopleStationView directory={staffDirectory} team={teamForViews} onChange={setStaffDirectory} /> : null}
       </main>
 
       {selectedWorkOrder ? <WorkOrderDrawer
         workOrder={selectedWorkOrder}
         currentUser={currentUser}
-        team={userProfiles}
+        team={teamForViews}
         staffDirectory={staffDirectory}
         clock={clock}
         onClose={() => setSelectedId(null)}
@@ -762,7 +761,7 @@ export default function App() {
       {modal?.type === 'schedule' ? <ScheduleModal
         workOrder={modal.workOrder}
         staffDirectory={staffDirectory}
-        team={userProfiles}
+        team={teamForViews}
         onClose={() => setModal(null)}
         onSave={(data) => {
           const plannedSteps = data.steps.map((step, index) => ({ ...step, sequence: index + 1, status: 'not_ready' as const, startedAt: undefined, activeSeconds: 0 }))
@@ -783,7 +782,7 @@ export default function App() {
         workOrder={modal.workOrder}
         step={modal.step}
         staffDirectory={staffDirectory}
-        team={userProfiles}
+        team={teamForViews}
         onClose={() => setModal(null)}
         onSave={(data) => {
           const updated = updateStep(modal.workOrder, modal.step.id, { assignedUserId: data.assignedUserId, reportToUserId: data.reportToUserId, location: data.location, status: 'ready' })
