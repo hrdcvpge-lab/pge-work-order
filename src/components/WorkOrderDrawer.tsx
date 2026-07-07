@@ -82,6 +82,17 @@ export function WorkOrderDrawer({
   const blocker = getBlockerSummary(workOrder)
   const currentStep = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
     || workOrder.steps.find((step) => ['ready', 'waiting_wip'].includes(deriveStepStatus(workOrder, step)))
+  const currentStation = currentStep?.station || 'general'
+  const statusHeadline = status === 'draft'
+    ? 'Draft · belum dijadwalkan'
+    : currentStep
+      ? `${currentStep.name} · ${stationLabels[currentStep.station]}`
+      : status === 'closed'
+        ? 'WO sudah ditutup'
+        : 'WO sudah selesai'
+  const statusNote = status === 'draft'
+    ? 'Admin atau PPIC perlu menjadwalkan WO agar proses pertama dapat dimulai.'
+    : blocker || (isOverdue(workOrder) ? 'Melewati target tanggal' : 'Tidak ada blocker aktif')
   const totalGood = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0)
   const totalReject = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyReject, 0)
   const artworkImages = workOrder.referenceImages || []
@@ -104,11 +115,11 @@ export function WorkOrderDrawer({
           <button className="icon-button" type="button" onClick={onClose} aria-label="Tutup detail"><Icon name="close" /></button>
         </header>
 
-        <section className="drawer-status-band">
+        <section className={`drawer-status-band drawer-status-band--station-${currentStation}`}>
           <div>
-            <div className="drawer-status-band__topline"><Badge kind="status" value={status} /><Badge kind="priority" value={workOrder.priority} /><Badge kind="type" value={workOrder.type} /></div>
-            <strong>{currentStep ? `${currentStep.name} · ${stationLabels[currentStep.station]}` : 'WO sudah selesai'}</strong>
-            <span>{blocker || (isOverdue(workOrder) ? 'Melewati target tanggal' : 'Tidak ada blocker aktif')}</span>
+            <div className="drawer-status-band__topline"><Badge kind="status" value={status} /><Badge kind="priority" value={workOrder.priority} /><Badge kind="type" value={workOrder.type} />{currentStep ? <Badge kind="station" value={currentStep.station} /> : null}</div>
+            <strong>{statusHeadline}</strong>
+            <span>{statusNote}</span>
           </div>
           <div className="drawer-progress-number"><b>{progress}%</b><span>Progress packing</span></div>
         </section>
@@ -152,7 +163,7 @@ export function WorkOrderDrawer({
         </section>
 
         <section className="drawer-section drawer-section--actions">
-          {currentUser.role === 'ppic' && status === 'draft' ? <button className="button button--primary" onClick={onSchedule}>Jadwalkan WO</button> : null}
+          {['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="button button--primary" onClick={onSchedule}>Jadwalkan WO</button> : null}
           {currentUser.role === 'admin' && status === 'draft' ? <button className="button button--danger-soft" onClick={onCancel}>Batalkan Draft</button> : null}
           {currentUser.role === 'admin' && status === 'done' ? <button className="button button--primary" onClick={onCloseOrder}>Tutup WO & Perbarui Stok</button> : null}
           {currentUser.role === 'manager' ? <span className="read-only-note">Mode manager: hanya melihat laporan dan histori.</span> : null}
@@ -163,7 +174,8 @@ export function WorkOrderDrawer({
           <div className="route-flow">
             {workOrder.steps.map((step, index) => {
               const stepStatus = deriveStepStatus(workOrder, step)
-              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><Badge kind="process" value={stepStatus} /></article></div>
+              const isCurrent = currentStep?.id === step.id
+              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus} route-card--station-${step.station}${isCurrent ? ' route-card--current' : ''}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><div className="route-card__badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></article></div>
             })}
           </div>
         </section>
@@ -175,11 +187,12 @@ export function WorkOrderDrawer({
               const stepStatus = deriveStepStatus(workOrder, step)
               const inputCap = getAvailableInputCap(workOrder, step)
               const canOperate = canOperateStep(currentUser, step)
-              const canAssign = currentUser.role === 'ppic' && getStepRecordedQty(step) === 0 && !step.startedAt
+              const canAssign = ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
               const isPrinting = step.station === 'printing'
               const startBlocked = isPrinting && !artworkReadiness.ready
-              return <article className="process-ticket" key={step.id}>
-                <header><div><span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team)}</b> · Lokasi: {step.location || 'Belum ditetapkan'}</p></div><Badge kind="process" value={stepStatus} /></header>
+              const isCurrent = currentStep?.id === step.id
+              return <article className={`process-ticket process-ticket--station-${step.station}${isCurrent ? ' process-ticket--current' : ''}`} key={step.id}>
+                <header><div><span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team)}</b> · Lokasi: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></header>
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
                 <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
                 {isPrinting && finalArtwork ? <div className="printing-final-panel">

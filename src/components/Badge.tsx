@@ -1,9 +1,9 @@
-import type { Priority, ProcessStatus, WorkOrderStatus, WorkOrderType } from '../types/workOrder'
-import { priorityLabels, processLabels, statusLabels, typeLabels } from '../utils/workOrder'
+import type { Priority, ProcessStatus, Station, WorkOrderStatus, WorkOrderType } from '../types/workOrder'
+import { priorityLabels, processLabels, stationLabels, statusLabels, typeLabels } from '../utils/workOrder'
 
 type Props = {
-  kind: 'priority' | 'status' | 'process' | 'type' | 'plain'
-  value: Priority | ProcessStatus | WorkOrderStatus | WorkOrderType | string
+  kind: 'priority' | 'status' | 'process' | 'station' | 'type' | 'plain'
+  value: Priority | ProcessStatus | Station | WorkOrderStatus | WorkOrderType | string
 }
 
 export function Badge({ kind, value }: Props) {
@@ -11,6 +11,7 @@ export function Badge({ kind, value }: Props) {
     kind === 'priority' ? priorityLabels[value as Priority] :
     kind === 'status' ? statusLabels[value as WorkOrderStatus] :
     kind === 'process' ? processLabels[value as ProcessStatus] :
+    kind === 'station' ? stationLabels[value as Station] :
     kind === 'type' ? typeLabels[value as WorkOrderType] :
     value
 
