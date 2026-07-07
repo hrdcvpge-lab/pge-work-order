@@ -1,22 +1,28 @@
-# PGE Work Order Control — Frontend v0.2
+# PGE Work Order Frontend v1.0
 
-This is a React + TypeScript frontend prototype for PGE's Work Order process.
+A clean React/Vite frontend baseline for PGE's manufacturing Work Order workflow. This package consolidates the earlier frontend features into one source tree; do not mix old v0.2.x patches into it.
 
-## Included in this version
+## What is included
 
-- MTO and MTS Work Orders
-- Draft → Scheduled → Production → QC → Packing → Done → Closed lifecycle
-- Role simulation for Admin, PPIC, Operator, QC, Packing, and Manager
-- Station-based task assignment
-- Route templates: direct, print-sew, multi-part, and simple custom routes
-- WIP visibility between production steps
-- Process timers, result logging, HOLD, QC pass/rework, packing, and audit history
-- Desktop dashboard plus an Android-friendly **Stasiun Saya** view
+- Draft → scheduled → production → QC → packing → done → closed lifecycle
+- Admin and PPIC planning/deployment with per-process station, PIC, reporting owner, area, machine, and schedule date
+- Standard stations: Printing, Cutting, Sewing / Assembly, Finishing, QC, Packing, Warehouse
+- Exact PIC task scope for floor users; station membership alone does not unlock another employee's task
+- Station-specific colors plus Admin/PPIC live glow for the active process
+- Artwork upload/reference with optional approval lock for Printing
+- Process timer, WIP, HOLD, QC pass/rework/reject, optional QC evidence, shortfall, replacement, and close protection
+- PPIC is the final operational approver for short shipment and cancellation of remaining quantity for both MTO and MTS
+- Seven reports: daily production, overdue WO, reject/defect, WIP aging, operator workload, machine workload, and customer order completion
+- Admin-only People & Station configuration for assignment eligibility and reporting defaults
 
-## Important limits
+## Frontend authority model
 
-This frontend uses mock data in browser memory. Refreshing resets the demo.
-It does not yet contain Supabase Auth, database persistence, RLS permissions, real notifications, or inventory posting.
+| Role | Access |
+| --- | --- |
+| Admin | Create drafts, plan/deploy routes, assign PIC, request quantity exceptions, manage People & Station |
+| PPIC | Schedule/deploy, edit operational planning, create replacements, and give final approval for short shipment/cancel remaining |
+| Manager | Read-only dashboard, Work Orders, and reports |
+| Operator / QC / Packing | Exact assigned process only |
 
 ## Run locally
 
@@ -25,17 +31,10 @@ npm install
 npm run dev
 ```
 
-## Deploy with GitHub Pages
+## Deploy
 
-The repository includes `.github/workflows/deploy.yml`.
+Use the included GitHub Actions workflow. Follow `DEPLOY_V1.md` for the safe GitHub replacement process.
 
-1. Push the project to the `main` branch.
-2. Open **Settings → Pages**.
-3. Set Source to **GitHub Actions**.
-4. GitHub will build and publish the `dist` directory.
+## Current limitation
 
-The repository name must stay `pge-work-order`, because `vite.config.ts` uses:
-
-```ts
-base: '/pge-work-order/'
-```
+This package is a frontend simulation. Browser refresh resets state. Do not use it as the permanent production record until Supabase Auth, Postgres, Storage, Row Level Security, and server-side transition functions are implemented.
