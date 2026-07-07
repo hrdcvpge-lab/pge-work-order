@@ -20,6 +20,8 @@ type IconName =
   | 'user'
   | 'printer'
   | 'package'
+  | 'image'
+  | 'upload'
 
 type Props = SVGProps<SVGSVGElement> & { name: IconName }
 
@@ -54,6 +56,8 @@ export function Icon({ name, ...props }: Props) {
     user: <><circle cx="12" cy="8" r="3"/><path d="M5 21c.8-4 3.2-6 7-6s6.2 2 7 6"/></>,
     printer: <><path d="M6 9V4h12v5M6 17H4V10h16v7h-2"/><path d="M7 14h10v6H7z"/></>,
     package: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></>,
+    image: <><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5.2-5 3.3 3 2.1-2 4.4 4"/></>,
+    upload: <><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></>,
   }
 
   return <svg {...base}>{paths[name]}</svg>

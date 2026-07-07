@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { Badge } from './Badge'
 import { Icon } from './Icon'
-import type { ProcessStep, TeamMember, WorkOrder } from '../types/workOrder'
+import type { ProcessStep, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
 import {
   deriveOrderStatus,
   deriveStepStatus,
@@ -73,6 +74,8 @@ export function WorkOrderDrawer({
 
   const totalGood = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0)
   const totalReject = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyReject, 0)
+  const artworkImages = workOrder.referenceImages || []
+  const [activeArtwork, setActiveArtwork] = useState<WorkOrderReferenceImage | null>(null)
 
   return (
     <div className="drawer-layer" role="presentation">
@@ -111,6 +114,19 @@ export function WorkOrderDrawer({
             <div><span>Hasil akhir</span><b>{formatNumber(totalGood)} baik · {formatNumber(totalReject)} reject</b></div>
           </div>
           <div className="progress-bar"><span style={{ width: `${progress}%` }} /></div>
+        </section>
+
+        <section className="drawer-section artwork-section">
+          <div className="section-heading"><div><p className="eyebrow">Artwork & motif</p><h3>Referensi visual untuk operator</h3></div><span>{artworkImages.length} gambar</span></div>
+          {artworkImages.length ? <>
+            <p className="artwork-section__hint">Operator Printing harus membuka gambar ini sebelum mulai, terutama bila satu produk memiliki beberapa motif atau variasi desain.</p>
+            <div className="artwork-gallery">
+              {artworkImages.map((image, index) => <button type="button" className="artwork-gallery__item" key={image.id} onClick={() => setActiveArtwork(image)}>
+                <img src={image.dataUrl} alt={`Artwork ${index + 1}: ${image.name}`} />
+                <span><b>Motif {index + 1}</b><small>{image.name}</small></span>
+              </button>)}
+            </div>
+          </> : <div className="artwork-missing"><Icon name="image" /><span><b>Belum ada gambar motif.</b> Tambahkan artwork sebelum proses Printing dimulai agar operator tidak hanya mengandalkan deskripsi teks.</span></div>}
         </section>
 
         <section className="drawer-section drawer-section--actions">
@@ -173,6 +189,11 @@ export function WorkOrderDrawer({
                     <div><span>Output WIP</span><b>{step.output}</b><small>Sisa target: {formatNumber(getStepRemaining(step))}</small></div>
                   </div>
 
+                  {step.station === 'printing' ? <div className="printing-artwork-panel">
+                    <div><Icon name="image" /><span><b>Motif yang harus dicetak</b><small>{artworkImages.length ? `${artworkImages.length} gambar referensi tersedia. Buka gambar sebelum mulai cetak.` : 'Belum ada artwork visual. Tahan proses dan minta Admin / PPIC menambahkan gambar.'}</small></span></div>
+                    {artworkImages.length ? <div className="printing-artwork-panel__thumbs">{artworkImages.map((image, index) => <button type="button" key={image.id} onClick={() => setActiveArtwork(image)}><img src={image.dataUrl} alt={`Motif ${index + 1}`} /><span>{index + 1}</span></button>)}</div> : null}
+                  </div> : null}
+
                   {step.inputs.length ? (
                     <div className="wip-chip-row">
                       {step.inputs.map((input) => <span key={input} className="wip-chip">{input}: <b>{formatNumber(getWipBalance(workOrder, input))}</b></span>)}
@@ -215,6 +236,14 @@ export function WorkOrderDrawer({
           </ol>
         </section>
       </aside>
+      {activeArtwork ? <div className="artwork-lightbox" role="dialog" aria-modal="true" aria-label={`Preview ${activeArtwork.name}`} onMouseDown={() => setActiveArtwork(null)}>
+        <button type="button" className="artwork-lightbox__backdrop" aria-label="Tutup preview" />
+        <figure onMouseDown={(event) => event.stopPropagation()}>
+          <button type="button" className="icon-button" aria-label="Tutup preview" onClick={() => setActiveArtwork(null)}><Icon name="close" /></button>
+          <img src={activeArtwork.dataUrl} alt={activeArtwork.name} />
+          <figcaption><b>{activeArtwork.name}</b><span>Pastikan motif, warna, dan versi artwork sesuai sebelum proses Printing dimulai.</span></figcaption>
+        </figure>
+      </div> : null}
     </div>
   )
 }
