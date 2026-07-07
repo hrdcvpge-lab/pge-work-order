@@ -29,16 +29,18 @@ const artworkPreview = (
   }
 }
 
+/** Demo accounts. The Team PGE roster is added to the chooser in App as individual worker accounts. */
 export const teamMembers: TeamMember[] = [
-  { id: 'u-admin', name: 'Rena · Admin Operasional', role: 'admin', stations: ['general'] },
-  { id: 'u-ppic', name: 'Dimas · PPIC', role: 'ppic', stations: ['general'] },
+  { id: 'u-admin', name: 'Rena · Admin Operasional', role: 'admin', stations: [] },
+  { id: 'u-ppic', name: 'Dimas · PPIC', role: 'ppic', stations: [] },
   { id: 'u-print', name: 'Bagus · Printing', role: 'operator', stations: ['printing'] },
   { id: 'u-cut', name: 'Dini · Cutting', role: 'operator', stations: ['cutting'] },
-  { id: 'u-sew', name: 'Rani · Jahit', role: 'operator', stations: ['sewing'] },
-  { id: 'u-finish', name: 'Eka · Finishing', role: 'operator', stations: ['finishing', 'component'] },
+  { id: 'u-sew', name: 'Rani · Sewing / Assembly', role: 'operator', stations: ['sewing'] },
+  { id: 'u-finish', name: 'Eka · Finishing', role: 'operator', stations: ['finishing'] },
+  { id: 'u-warehouse', name: 'Sukini · Warehouse', role: 'operator', stations: ['warehouse'] },
   { id: 'u-qc', name: 'Maya · QC', role: 'qc', stations: ['qc'] },
   { id: 'u-pack', name: 'Fitri · Packing', role: 'packing', stations: ['packing'] },
-  { id: 'u-manager', name: 'Arif · Manager', role: 'manager', stations: ['general'] },
+  { id: 'u-manager', name: 'Arif · Manager', role: 'manager', stations: [] },
 ]
 
 
@@ -77,7 +79,8 @@ export const workAreas = [
   'Area Cutting',
   'Rak WIP Cetak',
   'Rak WIP Jahit',
-  'Area Komponen',
+  'Area Warehouse / Material',
+  'Area Warehouse / Receiving',
   'Meja Jahit 1',
   'Meja Jahit 2',
   'Area Finishing',
@@ -166,8 +169,8 @@ export const initialWorkOrders: WorkOrder[] = [
     steps: [
       step('s-101', 1, 'Cetak gambar / motif', 'printing', 250, [], 'Panel cetak', 'u-print', { status: 'completed', qtyGood: 250, activeSeconds: 7_560, location: 'Rak WIP Cetak', artworkConfirmedBy: 'Bagus · Printing', artworkConfirmedAt: ago(155), artworkConfirmedImageId: 'art-korea-01' }),
       step('s-102', 2, 'Potong bahan', 'cutting', 250, ['Panel cetak'], 'Panel potong', 'u-cut', { status: 'in_progress', qtyGood: 140, activeSeconds: 2_310, startedAt: ago(17), location: 'Rak WIP Jahit' }),
-      step('s-103', 3, 'Siapkan furing', 'component', 250, [], 'Set furing', 'u-finish', { status: 'completed', qtyGood: 250, activeSeconds: 2_040, location: 'Rak WIP Jahit' }),
-      step('s-104', 4, 'Siapkan resleting / tali', 'component', 250, [], 'Set resleting', 'u-finish', { status: 'completed', qtyGood: 250, activeSeconds: 1_620, location: 'Rak WIP Jahit' }),
+      step('s-103', 3, 'Siapkan furing', 'warehouse', 250, [], 'Set furing', 'u-warehouse', { status: 'completed', qtyGood: 250, activeSeconds: 2_040, location: 'Rak WIP Jahit' }),
+      step('s-104', 4, 'Siapkan resleting / tali', 'warehouse', 250, [], 'Set resleting', 'u-warehouse', { status: 'completed', qtyGood: 250, activeSeconds: 1_620, location: 'Rak WIP Jahit' }),
       step('s-105', 5, 'Jahit / rakit produk', 'sewing', 250, ['Panel potong', 'Set furing', 'Set resleting'], 'Produk siap QC', 'u-sew', { status: 'waiting_wip', location: 'Meja Jahit 2' }),
       step('s-106', 6, 'QC akhir', 'qc', 250, ['Produk siap QC'], 'Produk lolos QC', 'u-qc', { status: 'not_ready', location: 'Area QC' }),
       step('s-107', 7, 'Packing', 'packing', 250, ['Produk lolos QC'], 'Produk terpacking', 'u-pack', { status: 'not_ready', location: 'Area Packing' }),
@@ -232,7 +235,7 @@ export const initialWorkOrders: WorkOrder[] = [
     createdAt: ago(42 * 60),
     createdBy: 'Rena · Admin Operasional',
     steps: [
-      step('s-301', 1, 'Buat produk', 'general', 120, [], 'Produk siap QC'),
+      step('s-301', 1, 'Buat produk', 'sewing', 120, [], 'Produk siap QC', 'u-sew'),
       step('s-302', 2, 'QC akhir', 'qc', 120, ['Produk siap QC'], 'Produk lolos QC', 'u-qc'),
       step('s-303', 3, 'Packing', 'packing', 120, ['Produk lolos QC'], 'Produk terpacking', 'u-pack'),
     ],
