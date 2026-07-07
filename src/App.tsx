@@ -271,8 +271,13 @@ export default function App() {
 
   const startStep = (order: WorkOrder, step: ProcessStep) => {
     if (step.station !== 'printing') return beginStep(order, step)
+
     const readiness = getArtworkReadiness(order)
     if (!readiness.ready) return showToast(`Printing diblokir. ${readiness.reason}`)
+
+    // Only WOs explicitly marked as artwork-controlled require a final-file review.
+    if (!order.artworkApprovalRequired) return beginStep(order, step)
+
     setModal({ type: 'confirm-artwork', workOrder: order, step })
   }
 
@@ -456,13 +461,14 @@ export default function App() {
                 return <article key={step.id} className="station-task-card">
                   <header><div><Badge kind="priority" value={order.priority} /><span>{order.code}</span></div><Badge kind="process" value={status} /></header>
                   <h3>{step.name}</h3><p>{order.product}</p>
-                  {isPrinting ? finalArtwork ? <section className="station-artwork-briefing">
-                    <button type="button" className="station-artwork-briefing__preview" onClick={() => openOrder(order)}><img src={finalArtwork.dataUrl} alt={`FINAL PRINT FILE ${finalArtwork.name}`} /></button>
-                    <div><span><Icon name="check" /> FINAL PRINT FILE · {finalArtwork.version}</span><h4>{finalArtwork.name}</h4><p>{finalArtwork.printNote || 'Buka detail WO untuk membaca instruksi cetak.'}</p><small>{finalArtwork.approvedBy ? `Disetujui oleh ${finalArtwork.approvedBy}` : 'Disetujui untuk cetak'}</small></div>
-                  </section> : <div className="station-artwork-blocked"><Icon name="warning" /><div><b>Printing diblokir</b><span>{artworkReadiness.reason}</span></div></div> : null}
+                  {isPrinting && finalArtwork ? <section className="station-artwork-briefing">
+                    <button type="button" className="station-artwork-briefing__preview" onClick={() => openOrder(order)}><img src={finalArtwork.dataUrl} alt={`${order.artworkApprovalRequired ? 'FINAL PRINT FILE' : 'Artwork reference'} ${finalArtwork.name}`} /></button>
+                    <div><span><Icon name="check" /> {order.artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><h4>{finalArtwork.name}</h4><p>{finalArtwork.printNote || 'Buka detail WO untuk membaca instruksi cetak.'}</p><small>{order.artworkApprovalRequired ? (finalArtwork.approvedBy ? `Disetujui oleh ${finalArtwork.approvedBy}` : 'Disetujui untuk cetak') : 'File ini hanya referensi; Printing tidak dikunci oleh approval.'}</small></div>
+                  </section> : null}
+                  {isPrinting && order.artworkApprovalRequired && !finalArtwork ? <div className="station-artwork-blocked"><Icon name="warning" /><div><b>Printing diblokir</b><span>{artworkReadiness.reason}</span></div></div> : null}
                   <div className="station-task-card__details"><span>Target <b>{formatNumber(step.plannedQty)}</b></span><span>Hasil baik <b>{formatNumber(step.qtyGood)}</b></span><span>WIP input <b>{Number.isFinite(getAvailableInputCap(order, step)) ? formatNumber(getAvailableInputCap(order, step)) : '—'}</b></span><span>Timer <b>{formatDuration(getOrderActiveSeconds({ ...order, steps: [step] }, clock))}</b></span></div>
                   {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
-                  <footer><button className="button button--secondary" onClick={() => openOrder(order)}>Lihat WO</button>{operationAllowed && status === 'ready' ? <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => startStep(order, step)}><Icon name="play" /> {isPrinting ? 'Review & mulai cetak' : 'Mulai'}</button> : null}{operationAllowed && status === 'in_progress' ? <><button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button>{step.station === 'qc' ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button> : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>}</> : null}{operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}{operationAllowed && status === 'hold' ? <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan</button> : null}</footer>
+                  <footer><button className="button button--secondary" onClick={() => openOrder(order)}>Lihat WO</button>{operationAllowed && status === 'ready' ? <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => startStep(order, step)}><Icon name="play" /> {isPrinting ? (order.artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai'}</button> : null}{operationAllowed && status === 'in_progress' ? <><button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button>{step.station === 'qc' ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button> : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>}</> : null}{operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}{operationAllowed && status === 'hold' ? <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan</button> : null}</footer>
                 </article>
               }) : <div className="empty-state empty-state--large">Tidak ada proses aktif untuk akun ini. Pilih pengguna lain di kanan atas untuk melihat antrean stasiun lain.</div>}
             </div>
@@ -531,6 +537,7 @@ export default function App() {
             product: data.product,
             referenceNote: data.referenceNote,
             referenceImages: data.referenceImages,
+            artworkApprovalRequired: data.artworkApprovalRequired,
             qty: data.qty,
             dueDate: data.dueDate,
             priority: data.priority,
@@ -666,10 +673,11 @@ export default function App() {
         workOrder={modal.workOrder}
         currentUser={currentUser}
         onClose={() => setModal(null)}
-        onSave={(referenceImages, changeSummary) => {
+        onSave={(referenceImages, artworkApprovalRequired, changeSummary) => {
           const updated: WorkOrder = {
             ...modal.workOrder,
             referenceImages,
+            artworkApprovalRequired,
             history: [makeHistory(currentUser, 'Kontrol artwork diperbarui', changeSummary), ...modal.workOrder.history],
           }
           applyOrderUpdate(updated, 'Artwork, versi, dan persetujuan berhasil diperbarui.')
@@ -701,6 +709,7 @@ type CreateData = {
   product: string
   referenceNote: string
   referenceImages: WorkOrderReferenceImage[]
+  artworkApprovalRequired: boolean
   qty: number
   dueDate: string
   priority: Priority
@@ -712,7 +721,7 @@ const MAX_ARTWORK_IMAGES = 6
 const MAX_ARTWORK_FILE_BYTES = 8 * 1024 * 1024
 const MAX_ARTWORK_DIMENSION = 1600
 
-function routeNeedsArtwork(template: string, customRoute: string[]) {
+function routeHasPrinting(template: string, customRoute: string[]) {
   return template === 'print-sew' || template === 'multi-part' || (template === 'custom' && customRoute.includes('printing'))
 }
 
@@ -771,10 +780,11 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
   const [customRoute, setCustomRoute] = useState<string[]>(['printing', 'cutting', 'lining', 'zipper', 'sewing', 'finishing'])
   const [form, setForm] = useState({ source: '', product: '', referenceNote: '', qty: 100, dueDate: new Date().toISOString().slice(0, 10), priority: 'p3' as Priority })
   const [referenceImages, setReferenceImages] = useState<WorkOrderReferenceImage[]>([])
+  const [artworkApprovalRequired, setArtworkApprovalRequired] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [isUploading, setIsUploading] = useState(false)
 
-  const needsArtwork = routeNeedsArtwork(template, customRoute)
+  const hasPrintingRoute = routeHasPrinting(template, customRoute)
   const toggleCustom = (id: string) => setCustomRoute((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])
 
   const addArtworkFiles = async (fileList: FileList | File[] | null) => {
@@ -819,11 +829,7 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
   return <Modal title="Buat Work Order" subtitle="Draft belum masuk ke lantai produksi. PPIC harus menjadwalkan sebelum proses pertama bisa dimulai." onClose={onClose} wide>
     <form className="form-stack" onSubmit={(event) => {
       event.preventDefault()
-      if (needsArtwork && referenceImages.length === 0) {
-        setUploadError('Rute dengan proses Printing wajib memiliki minimal satu gambar artwork / motif agar operator mencetak desain yang benar.')
-        return
-      }
-      onCreate({ type, template, customRoute, referenceImages, ...form, qty: Number(form.qty) })
+      onCreate({ type, template, customRoute, referenceImages, artworkApprovalRequired: hasPrintingRoute && artworkApprovalRequired, ...form, qty: Number(form.qty) })
     }}>
       <div className="form-section-label">1. Sumber dan produk</div>
       <div className="segmented-control"><button className={type === 'mto' ? 'is-active' : ''} type="button" onClick={() => setType('mto')}>Pesanan customer / MTO</button><button className={type === 'mts' ? 'is-active' : ''} type="button" onClick={() => setType('mts')}>Buat stok / MTS</button></div>
@@ -833,7 +839,7 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
         <label className="form-grid__wide"><span>Deskripsi produk</span><input required value={form.product} onChange={(event) => setForm({ ...form, product: event.target.value })} placeholder="Contoh: Cover passport Korea, maroon, motif landmark, resleting putih" /></label>
         <label className="form-grid__wide"><span>Referensi / lokasi artwork</span><input value={form.referenceNote} onChange={(event) => setForm({ ...form, referenceNote: event.target.value })} placeholder="Contoh: Canva / Produk Juli / Korea final V3" /></label>
         <div className="form-grid__wide artwork-field">
-          <span>Artwork / motif untuk printing {needsArtwork ? <b>· wajib</b> : '· opsional'}</span>
+          <span>Artwork / motif untuk printing · opsional</span>
           <div className="artwork-upload">
             <input id="artworkUpload" className="artwork-upload__input" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { void addArtworkFiles(event.target.files); event.currentTarget.value = '' }} />
             <label className="artwork-upload__dropzone" htmlFor="artworkUpload" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addArtworkFiles(event.dataTransfer.files) }}>
@@ -846,7 +852,7 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
                 <div><b>{image.isPrimary ? 'Kandidat file utama' : `Motif ${index + 1}`}</b><small>{image.name} · {image.version} · menunggu persetujuan</small></div>
                 <button type="button" onClick={() => removeArtwork(image.id)} aria-label={`Hapus ${image.name}`}>×</button>
               </article>)}
-            </div> : <p className="artwork-upload__empty">Belum ada gambar motif. File pertama otomatis menjadi kandidat file utama, tetapi tetap harus disetujui sebagai FINAL PRINT FILE oleh Admin/PPIC setelah WO dibuat.</p>}
+            </div> : <p className="artwork-upload__empty">Belum ada gambar motif. Upload hanya bila desain perlu menjadi acuan operator. Jika approval artwork diaktifkan di bawah, file final dapat ditambahkan dan disetujui setelah WO dibuat.</p>}
             {uploadError ? <p className="artwork-upload__error">{uploadError}</p> : null}
           </div>
         </div>
@@ -856,6 +862,7 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
       <div className="form-section-label">2. Pilih rute produksi</div>
       <div className="route-template-grid">{routeTemplates.map((item) => <button type="button" key={item.id} className={`route-template${template === item.id ? ' route-template--active' : ''}`} onClick={() => setTemplate(item.id)}><b>{item.title}</b><span>{item.description}</span></button>)}</div>
       {template === 'custom' ? <div className="custom-route-builder"><div><b>Proses dipilih</b><span>QC akhir dan packing ditambahkan otomatis. Rute yang sudah punya hasil tidak dapat diubah setelah produksi dimulai.</span></div><div className="custom-route-options">{CUSTOM_OPTIONS.map((item) => <button type="button" key={item.id} className={customRoute.includes(item.id) ? 'is-active' : ''} onClick={() => toggleCustom(item.id)}>{customRoute.includes(item.id) ? '✓ ' : '+ '}{item.label}</button>)}</div></div> : null}
+      {hasPrintingRoute ? <label className="artwork-confirm__check artwork-control-option"><input type="checkbox" checked={artworkApprovalRequired} onChange={(event) => setArtworkApprovalRequired(event.target.checked)} /><span><b>Wajibkan approval artwork sebelum Printing</b><small>Opsional. Aktifkan hanya untuk motif custom, revisi desain, atau produk yang harus diverifikasi terhadap file final. Jika tidak dicentang, operator tetap bisa mulai cetak tanpa upload atau approval artwork.</small></span></label> : null}
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={isUploading}>Buat draft WO</button></footer>
     </form>
   </Modal>
@@ -878,9 +885,10 @@ function ArtworkManagerModal({
   workOrder: WorkOrder
   currentUser: TeamMember
   onClose: () => void
-  onSave: (images: WorkOrderReferenceImage[], changeSummary: string) => void
+  onSave: (images: WorkOrderReferenceImage[], artworkApprovalRequired: boolean, changeSummary: string) => void
 }) {
   const [images, setImages] = useState<WorkOrderReferenceImage[]>(() => (workOrder.referenceImages || []).map((image) => ({ ...image })))
+  const [artworkApprovalRequired, setArtworkApprovalRequired] = useState(Boolean(workOrder.artworkApprovalRequired))
   const [uploadError, setUploadError] = useState('')
   const [isUploading, setIsUploading] = useState(false)
 
@@ -945,20 +953,23 @@ function ArtworkManagerModal({
 
   const save = () => {
     const primary = images.find((image) => image.isPrimary)
-    if (primary?.approvalStatus === 'superseded') {
-      setUploadError('File utama tidak boleh berstatus versi lama / diganti.')
+    if (artworkApprovalRequired && primary?.approvalStatus === 'superseded') {
+      setUploadError('File utama tidak boleh berstatus versi lama / diganti ketika approval artwork diwajibkan.')
       return
     }
     const final = images.find((image) => image.isPrimary && image.approvalStatus === 'approved')
-    const summary = final
-      ? `FINAL PRINT FILE: ${final.name} · ${final.version} · disetujui untuk cetak.`
-      : 'Artwork diperbarui, tetapi belum ada FINAL PRINT FILE yang disetujui untuk cetak.'
-    onSave(images, summary)
+    const summary = artworkApprovalRequired
+      ? (final
+        ? `Approval artwork diwajibkan. FINAL PRINT FILE: ${final.name} · ${final.version} · disetujui untuk cetak.`
+        : 'Approval artwork diwajibkan, tetapi belum ada FINAL PRINT FILE yang disetujui untuk cetak.')
+      : 'Artwork disimpan sebagai referensi opsional. Printing tidak akan dikunci oleh approval file.'
+    onSave(images, artworkApprovalRequired, summary)
   }
 
-  return <Modal title="Kelola Artwork & Versi" subtitle="Tetapkan satu FINAL PRINT FILE yang disetujui. File lain boleh disimpan sebagai referensi atau versi lama, tetapi operator hanya boleh mencetak file final." onClose={onClose} wide>
+  return <Modal title="Kelola Artwork & Versi" subtitle="Artwork dapat dipakai sebagai referensi saja atau dijadikan kontrol wajib sebelum Printing. Pilih sesuai risiko produk dan motif." onClose={onClose} wide>
     <div className="form-stack artwork-manager">
-      <div className="callout"><Icon name="warning" /><span><b>Aturan:</b> satu WO hanya boleh mempunyai satu file utama. Agar Printing dapat dimulai, file utama harus memiliki status <b>Disetujui untuk cetak</b>.</span></div>
+      <label className="artwork-confirm__check artwork-control-option"><input type="checkbox" checked={artworkApprovalRequired} onChange={(event) => setArtworkApprovalRequired(event.target.checked)} /><span><b>Wajibkan approval artwork sebelum Printing</b><small>Jika aktif, operator tidak bisa mulai cetak sampai satu FINAL PRINT FILE dipilih dan disetujui. Jika nonaktif, artwork tetap bisa disimpan sebagai referensi tanpa mengunci proses.</small></span></label>
+      {artworkApprovalRequired ? <div className="callout"><Icon name="warning" /><span><b>Aturan aktif:</b> satu WO hanya boleh mempunyai satu file utama. Agar Printing dapat dimulai, file utama harus memiliki status <b>Disetujui untuk cetak</b>.</span></div> : <div className="callout"><Icon name="image" /><span><b>Mode opsional:</b> file dapat diunggah untuk memudahkan operator, tetapi Printing tetap dapat dimulai tanpa file final atau approval.</span></div>}
       <input id="artworkRevisionUpload" className="artwork-upload__input" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { void addArtworkFiles(event.target.files); event.currentTarget.value = '' }} />
       <label className="artwork-upload__dropzone" htmlFor="artworkRevisionUpload" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addArtworkFiles(event.dataTransfer.files) }}>
         <Icon name="upload" /><span><b>{isUploading ? 'Menyiapkan file revisi...' : 'Tambah artwork / revisi baru'}</b><small>Drag & drop atau klik. File baru ditambahkan sebagai versi berikutnya dan tetap menunggu persetujuan.</small></span>
@@ -1004,10 +1015,10 @@ function ScheduleModal({ workOrder, onClose, onSave }: { workOrder: WorkOrder; o
   const [data, setData] = useState({ assignedUserId: available[0]?.id || '', machine: 'Mimaki Eco Solvent 01', scheduledDate: new Date().toISOString().slice(0, 10), location: 'Area produksi' })
   const firstStep = workOrder.steps.find((step) => !step.inputs.length) || workOrder.steps[0]
   const artworkReadiness = getArtworkReadiness(workOrder)
-  return <Modal title="Jadwalkan Work Order" subtitle="PPIC dapat memesan kapasitas lebih awal. Namun proses Printing tetap tidak bisa dimulai sampai FINAL PRINT FILE disetujui." onClose={onClose}>
+  return <Modal title="Jadwalkan Work Order" subtitle={workOrder.artworkApprovalRequired ? 'PPIC dapat memesan kapasitas lebih awal. Printing akan terkunci sampai FINAL PRINT FILE disetujui.' : 'PPIC dapat memesan kapasitas lebih awal. Artwork bersifat opsional untuk WO ini.'} onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave(data) }}>
       <div className="callout"><Icon name="calendar" /><span><b>{workOrder.code}</b> · Langkah pertama: <b>{firstStep.name}</b></span></div>
-      {!artworkReadiness.ready ? <div className="callout callout--warning"><Icon name="warning" /><span><b>Artwork belum siap untuk cetak.</b> {artworkReadiness.reason} WO tetap dapat dijadwalkan, tetapi tombol mulai cetak akan terkunci sampai file final disetujui.</span></div> : null}
+      {workOrder.artworkApprovalRequired && !artworkReadiness.ready ? <div className="callout callout--warning"><Icon name="warning" /><span><b>Artwork belum siap untuk cetak.</b> {artworkReadiness.reason} WO tetap dapat dijadwalkan, tetapi tombol mulai cetak akan terkunci sampai file final disetujui.</span></div> : null}
       <label><span>Operator langkah pertama</span><select value={data.assignedUserId} onChange={(event) => setData({ ...data, assignedUserId: event.target.value })}>{available.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
       <label><span>Mesin / sumber daya</span><input value={data.machine} onChange={(event) => setData({ ...data, machine: event.target.value })} /></label>
       <div className="form-grid"><label><span>Tanggal jadwal</span><input type="date" value={data.scheduledDate} onChange={(event) => setData({ ...data, scheduledDate: event.target.value })} /></label><label><span>Lokasi</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} /></label></div>
