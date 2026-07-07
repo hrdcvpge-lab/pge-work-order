@@ -87,6 +87,7 @@ export function WorkOrderDrawer({
   const artworkImages = workOrder.referenceImages || []
   const finalArtwork = getApprovedPrimaryArtwork(workOrder)
   const artworkReadiness = getArtworkReadiness(workOrder)
+  const artworkApprovalRequired = Boolean(workOrder.artworkApprovalRequired)
   const [activeArtwork, setActiveArtwork] = useState<WorkOrderReferenceImage | null>(null)
   const canManageArtwork = ['admin', 'ppic'].includes(currentUser.role)
 
@@ -124,30 +125,30 @@ export function WorkOrderDrawer({
 
         <section className="drawer-section artwork-section">
           <div className="section-heading">
-            <div><p className="eyebrow">Artwork & motif</p><h3>Kontrol file sebelum Printing</h3></div>
-            <div className="section-heading__actions"><span>{artworkImages.length} file</span>{canManageArtwork ? <button type="button" className="button button--secondary button--compact" onClick={onManageArtwork}>Kelola artwork</button> : null}</div>
+            <div><p className="eyebrow">Artwork & motif</p><h3>{artworkApprovalRequired ? 'Kontrol file sebelum Printing' : 'Artwork sebagai referensi opsional'}</h3></div>
+            <div className="section-heading__actions"><span>{artworkApprovalRequired ? 'Approval wajib' : 'Opsional'} · {artworkImages.length} file</span>{canManageArtwork ? <button type="button" className="button button--secondary button--compact" onClick={onManageArtwork}>Kelola artwork</button> : null}</div>
           </div>
 
           {finalArtwork ? <article className="final-artwork-card">
-            <button type="button" className="final-artwork-card__image" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={`FINAL PRINT FILE ${finalArtwork.name}`} /></button>
+            <button type="button" className="final-artwork-card__image" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={`${artworkApprovalRequired ? 'FINAL PRINT FILE' : 'Artwork reference'} ${finalArtwork.name}`} /></button>
             <div className="final-artwork-card__copy">
-              <span className="final-artwork-card__eyebrow"><Icon name="check" /> FINAL PRINT FILE</span>
+              <span className="final-artwork-card__eyebrow"><Icon name="check" /> {artworkApprovalRequired ? 'FINAL PRINT FILE' : 'ARTWORK REFERENCE · OPSIONAL'}</span>
               <h4>{finalArtwork.name}</h4>
-              <p>Versi <b>{finalArtwork.version}</b> · disetujui untuk cetak oleh <b>{finalArtwork.approvedBy || 'PPIC / R&D'}</b>.</p>
+              <p>{artworkApprovalRequired ? <>Versi <b>{finalArtwork.version}</b> · disetujui untuk cetak oleh <b>{finalArtwork.approvedBy || 'PPIC / R&D'}</b>.</> : <>Versi <b>{finalArtwork.version}</b> · file ini tersedia sebagai referensi, tanpa mengunci Printing.</>}</p>
               {finalArtwork.printNote ? <div className="final-artwork-card__note">{finalArtwork.printNote}</div> : null}
-              <button type="button" className="button button--primary button--compact" onClick={() => setActiveArtwork(finalArtwork)}><Icon name="image" /> Buka file final</button>
+              <button type="button" className="button button--primary button--compact" onClick={() => setActiveArtwork(finalArtwork)}><Icon name="image" /> {artworkApprovalRequired ? 'Buka file final' : 'Buka artwork'}</button>
             </div>
-          </article> : artworkReadiness.ready ? null : <div className="artwork-missing"><Icon name="warning" /><span><b>Printing belum boleh dimulai.</b> {artworkReadiness.reason}{canManageArtwork ? ' Kelola artwork untuk menetapkan versi final dan persetujuan.' : ''}</span></div>}
+          </article> : artworkApprovalRequired ? <div className="artwork-missing"><Icon name="warning" /><span><b>Printing belum boleh dimulai.</b> {artworkReadiness.reason}{canManageArtwork ? ' Kelola artwork untuk menetapkan versi final dan persetujuan.' : ''}</span></div> : null}
 
           {artworkImages.length ? <>
-            <p className="artwork-section__hint">Hanya file bertanda <b>FINAL PRINT FILE</b> yang boleh dijadikan acuan produksi. Versi lama tetap disimpan untuk audit, tetapi tidak boleh dicetak.</p>
+            <p className="artwork-section__hint">{artworkApprovalRequired ? <>Hanya file bertanda <b>FINAL PRINT FILE</b> yang boleh dijadikan acuan produksi. Versi lama tetap disimpan untuk audit, tetapi tidak boleh dicetak.</> : 'Artwork pada WO ini bersifat referensi. Admin / PPIC dapat mengaktifkan approval wajib melalui Kelola artwork bila file final perlu dikunci.'}</p>
             <div className="artwork-gallery">
               {artworkImages.map((image) => <button type="button" className={`artwork-gallery__item${image.isPrimary ? ' artwork-gallery__item--primary' : ''}`} key={image.id} onClick={() => setActiveArtwork(image)}>
                 <img src={image.dataUrl} alt={`${image.name} ${image.version}`} />
-                <span><small>{image.version}</small><b>{image.isPrimary ? 'FINAL PRINT FILE' : image.name}</b><em className={approvalClass(image)}>{artworkApprovalLabels[image.approvalStatus]}</em></span>
+                <span><small>{image.version}</small><b>{image.isPrimary ? (artworkApprovalRequired ? 'FINAL PRINT FILE' : 'Artwork reference') : image.name}</b><em className={approvalClass(image)}>{artworkApprovalLabels[image.approvalStatus]}</em></span>
               </button>)}
             </div>
-          </> : <div className="artwork-missing"><Icon name="image" /><span><b>Belum ada gambar motif.</b> Tambahkan artwork sebelum proses Printing dimulai agar operator tidak hanya mengandalkan deskripsi teks.</span></div>}
+          </> : !artworkApprovalRequired ? <div className="artwork-missing"><Icon name="image" /><span><b>Tidak ada gambar artwork.</b> Tidak masalah—artwork tidak diwajibkan untuk WO ini. Tambahkan file hanya bila motif perlu menjadi acuan operator.</span></div> : null}
         </section>
 
         <section className="drawer-section drawer-section--actions">
@@ -181,13 +182,14 @@ export function WorkOrderDrawer({
                 <header><div><span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team)}</b> · Lokasi: {step.location || 'Belum ditetapkan'}</p></div><Badge kind="process" value={stepStatus} /></header>
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
                 <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
-                {isPrinting ? <div className={`printing-final-panel${finalArtwork ? '' : ' printing-final-panel--blocked'}`}>
-                  {finalArtwork ? <><button type="button" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={finalArtwork.name} /></button><div><span>FINAL PRINT FILE · {finalArtwork.version}</span><b>{finalArtwork.name}</b><small>{finalArtwork.printNote || 'Buka file final sebelum mulai cetak.'}</small>{step.artworkConfirmedAt ? <em><Icon name="check" /> Diverifikasi oleh {step.artworkConfirmedBy} · {formatDateTime(step.artworkConfirmedAt)}</em> : <em><Icon name="warning" /> Operator wajib review dan konfirmasi file final saat mulai.</em>}</div></> : <><Icon name="warning" /><div><b>Printing diblokir</b><small>{artworkReadiness.reason}</small></div></>}
+                {isPrinting && finalArtwork ? <div className="printing-final-panel">
+                  <button type="button" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={finalArtwork.name} /></button><div><span>{artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><b>{finalArtwork.name}</b><small>{finalArtwork.printNote || (artworkApprovalRequired ? 'Buka file final sebelum mulai cetak.' : 'File ini dapat dipakai sebagai referensi operator.')}</small>{artworkApprovalRequired ? (step.artworkConfirmedAt ? <em><Icon name="check" /> Diverifikasi oleh {step.artworkConfirmedBy} · {formatDateTime(step.artworkConfirmedAt)}</em> : <em><Icon name="warning" /> Operator wajib review dan konfirmasi file final saat mulai.</em>) : <em><Icon name="check" /> Approval artwork tidak diwajibkan untuk WO ini.</em>}</div>
                 </div> : null}
+                {isPrinting && artworkApprovalRequired && !finalArtwork ? <div className="printing-final-panel printing-final-panel--blocked"><Icon name="warning" /><div><b>Printing diblokir</b><small>{artworkReadiness.reason}</small></div></div> : null}
                 {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
                 <footer className="process-ticket__footer"><div className="process-ticket__actions">
                   {canAssign ? <button className="button button--secondary" onClick={() => onAssign(step)}>Atur PIC</button> : null}
-                  {canOperate && stepStatus === 'ready' ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {isPrinting ? 'Review & mulai cetak' : 'Mulai proses'}</button> : null}
+                  {canOperate && stepStatus === 'ready' ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {isPrinting ? (artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai proses'}</button> : null}
                   {canOperate && stepStatus === 'in_progress' ? <button className="button button--secondary" onClick={() => onPause(step)}><Icon name="pause" /> Jeda</button> : null}
                   {canOperate && stepStatus === 'in_progress' && step.station === 'qc' ? <button className="button button--primary" onClick={() => onQcDecision(step)}>Keputusan QC</button> : null}
                   {canOperate && stepStatus === 'in_progress' && step.station !== 'qc' ? <button className="button button--primary" onClick={() => onLogResult(step)}>Catat hasil</button> : null}
