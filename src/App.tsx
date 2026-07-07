@@ -318,14 +318,14 @@ export default function App() {
   const renderTaskRow = (order: WorkOrder, step: ProcessStep, index?: number) => {
     const stepStatus = deriveStepStatus(order, step)
     return (
-      <button className="queue-row" key={step.id} onClick={() => openOrder(order)}>
+      <button className={`queue-row queue-row--station-${step.station}`} key={step.id} onClick={() => openOrder(order)}>
         <span className="queue-row__index">{index ?? step.sequence}</span>
         <span className="queue-row__copy">
           <b>{step.name} <small>· {order.code}</small></b>
           <span>{order.product}</span>
           <em>{step.assignedUserId ? teamMembers.find((member) => member.id === step.assignedUserId)?.name : 'PIC belum ditentukan'} · Target {formatNumber(step.plannedQty)}</em>
         </span>
-        <span className="queue-row__right"><Badge kind="priority" value={order.priority} /><Badge kind="process" value={stepStatus} /></span>
+        <span className="queue-row__right"><Badge kind="station" value={step.station} /><Badge kind="priority" value={order.priority} /><Badge kind="process" value={stepStatus} /></span>
       </button>
     )
   }
@@ -425,19 +425,19 @@ export default function App() {
                 <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
                 <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)}><option value="all">Semua prioritas</option>{Object.entries(priorityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
               </div>
-              <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>PIC saat ini</th><th /></tr></thead><tbody>
+              <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
                   const status = deriveOrderStatus(order)
-                  return <tr key={order.id} onClick={() => openOrder(order)}>
+                  return <tr className={`wo-table__row wo-table__row--station-${current?.station || 'general'}`} key={order.id} onClick={() => openOrder(order)}>
                     <td><b>{order.code}</b><small>Dibuat {formatDate(order.createdAt.slice(0, 10))}</small></td>
                     <td><Badge kind="type" value={order.type} /><small>{order.source}</small></td>
                     <td><b>{order.product}</b><small>{order.referenceNote || 'Tidak ada catatan referensi'}</small></td>
                     <td><b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b><Badge kind="priority" value={order.priority} /></td>
                     <td><b>{getProgress(order)}%</b><small>{formatNumber(order.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0))}/{formatNumber(order.qty)} terpacking</small></td>
                     <td><Badge kind="status" value={status} />{getBlockerSummary(order) ? <small className="text-warning">{getBlockerSummary(order)}</small> : null}</td>
-                    <td><b>{current?.assignedUserId ? teamMembers.find((member) => member.id === current.assignedUserId)?.name : 'Belum ditetapkan'}</b><small>{current ? current.name : 'Tidak ada proses aktif'}</small></td>
-                    <td><button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></td>
+                    <td><b>{current?.assignedUserId ? teamMembers.find((member) => member.id === current.assignedUserId)?.name : 'Belum ditetapkan'}</b><small>{current ? <><Badge kind="station" value={current.station} /> {current.name}</> : 'Belum ada proses aktif'}</small></td>
+                    <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Jadwalkan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
                 })}
               </tbody></table></div>
@@ -458,8 +458,8 @@ export default function App() {
                 const isPrinting = step.station === 'printing'
                 const finalArtwork = getApprovedPrimaryArtwork(order)
                 const artworkReadiness = getArtworkReadiness(order)
-                return <article key={step.id} className="station-task-card">
-                  <header><div><Badge kind="priority" value={order.priority} /><span>{order.code}</span></div><Badge kind="process" value={status} /></header>
+                return <article key={step.id} className={`station-task-card station-task-card--station-${step.station}`}>
+                  <header><div><Badge kind="station" value={step.station} /><Badge kind="priority" value={order.priority} /><span>{order.code}</span></div><Badge kind="process" value={status} /></header>
                   <h3>{step.name}</h3><p>{order.product}</p>
                   {isPrinting && finalArtwork ? <section className="station-artwork-briefing">
                     <button type="button" className="station-artwork-briefing__preview" onClick={() => openOrder(order)}><img src={finalArtwork.dataUrl} alt={`${order.artworkApprovalRequired ? 'FINAL PRINT FILE' : 'Artwork reference'} ${finalArtwork.name}`} /></button>
