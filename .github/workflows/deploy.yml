@@ -19,34 +19,25 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout source code
         uses: actions/checkout@v7
-
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
           registry-url: 'https://registry.npmjs.org'
-
       - name: Install dependencies
         run: npm install --package-lock=false --registry=https://registry.npmjs.org/ --no-audit --no-fund
-
       - name: Build frontend
         run: npm run build
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
-
       - name: Upload website files
         uses: actions/upload-pages-artifact@v5
         with:
           path: './dist'
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
