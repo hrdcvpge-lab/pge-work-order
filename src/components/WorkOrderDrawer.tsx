@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Badge } from './Badge'
 import { Icon } from './Icon'
-import type { ProcessStep, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
+import type { ProcessStep, StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
 import {
   artworkApprovalLabels,
   deriveOrderStatus,
@@ -28,6 +28,7 @@ type Props = {
   workOrder: WorkOrder
   currentUser: TeamMember
   team: TeamMember[]
+  staffDirectory: StaffDirectoryMember[]
   clock: number
   onClose: () => void
   onSchedule: () => void
@@ -43,13 +44,17 @@ type Props = {
   onManageArtwork: () => void
 }
 
-const getMemberName = (id: string | undefined, team: TeamMember[]) => team.find((member) => member.id === id)?.name || 'Belum ditugaskan'
+const getMemberName = (id: string | undefined, team: TeamMember[], staffDirectory: StaffDirectoryMember[], fallback = 'Belum ditugaskan') => {
+  if (!id) return fallback
+  return staffDirectory.find((member) => member.id === id)?.name || team.find((member) => member.id === id)?.name || fallback
+}
 
-function canOperateStep(currentUser: TeamMember, step: ProcessStep) {
+function canOperateStep(currentUser: TeamMember, step: ProcessStep, staffDirectory: StaffDirectoryMember[]) {
   if (currentUser.role === 'manager') return false
-  if (currentUser.role === 'operator') return step.assignedUserId === currentUser.id && !['qc', 'packing'].includes(step.station)
-  if (currentUser.role === 'qc') return step.assignedUserId === currentUser.id && step.station === 'qc'
-  if (currentUser.role === 'packing') return step.assignedUserId === currentUser.id && step.station === 'packing'
+  const assignedToDirectory = staffDirectory.some((member) => member.id === step.assignedUserId)
+  if (currentUser.role === 'operator') return !['qc', 'packing'].includes(step.station) && (step.assignedUserId === currentUser.id || (assignedToDirectory && currentUser.stations.includes(step.station)))
+  if (currentUser.role === 'qc') return step.station === 'qc' && (step.assignedUserId === currentUser.id || assignedToDirectory)
+  if (currentUser.role === 'packing') return step.station === 'packing' && (step.assignedUserId === currentUser.id || assignedToDirectory)
   return false
 }
 
@@ -63,6 +68,7 @@ export function WorkOrderDrawer({
   workOrder,
   currentUser,
   team,
+  staffDirectory,
   clock,
   onClose,
   onSchedule,
@@ -91,7 +97,7 @@ export function WorkOrderDrawer({
         ? 'WO sudah ditutup'
         : 'WO sudah selesai'
   const statusNote = status === 'draft'
-    ? 'Admin atau PPIC perlu menjadwalkan WO agar proses pertama dapat dimulai.'
+    ? 'Admin atau PPIC perlu menetapkan alur, PIC, penerima laporan, dan area kerja sebelum WO dideploy.'
     : blocker || (isOverdue(workOrder) ? 'Melewati target tanggal' : 'Tidak ada blocker aktif')
   const totalGood = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0)
   const totalReject = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyReject, 0)
@@ -163,7 +169,7 @@ export function WorkOrderDrawer({
         </section>
 
         <section className="drawer-section drawer-section--actions">
-          {['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="button button--primary" onClick={onSchedule}>Jadwalkan WO</button> : null}
+          {['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="button button--primary" onClick={onSchedule}>Rencanakan & deploy WO</button> : null}
           {currentUser.role === 'admin' && status === 'draft' ? <button className="button button--danger-soft" onClick={onCancel}>Batalkan Draft</button> : null}
           {currentUser.role === 'admin' && status === 'done' ? <button className="button button--primary" onClick={onCloseOrder}>Tutup WO & Perbarui Stok</button> : null}
           {currentUser.role === 'manager' ? <span className="read-only-note">Mode manager: hanya melihat laporan dan histori.</span> : null}
@@ -186,13 +192,13 @@ export function WorkOrderDrawer({
             {workOrder.steps.map((step, index) => {
               const stepStatus = deriveStepStatus(workOrder, step)
               const inputCap = getAvailableInputCap(workOrder, step)
-              const canOperate = canOperateStep(currentUser, step)
+              const canOperate = canOperateStep(currentUser, step, staffDirectory)
               const canAssign = ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
               const isPrinting = step.station === 'printing'
               const startBlocked = isPrinting && !artworkReadiness.ready
               const isCurrent = currentStep?.id === step.id
               return <article className={`process-ticket process-ticket--station-${step.station}${isCurrent ? ' process-ticket--current' : ''}`} key={step.id}>
-                <header><div><span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team)}</b> · Lokasi: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></header>
+                <header><div><span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} /></div></header>
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
                 <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
                 {isPrinting && finalArtwork ? <div className="printing-final-panel">
