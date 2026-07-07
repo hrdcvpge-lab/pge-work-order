@@ -291,3 +291,40 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
   .row-actions { justify-content: flex-start; flex-wrap: wrap; }
   .process-ticket__header-badges { justify-content: flex-start; }
 }
+
+/* v0.2.5 — Draft deployment planner */
+.callout--danger { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.deployment-plan { gap: 14px; }
+.deployment-plan__section { display: grid; gap: 12px; padding: 13px; border: 1px solid #e7e7e1; border-radius: 10px; background: #fafaf8; }
+.deployment-plan__section h3 { margin: 2px 0 3px; color: #2b2b2b; font-size: 14px; letter-spacing: -.02em; }
+.deployment-plan__section > div > span { color: #777; font-size: 10px; line-height: 1.5; }
+.deployment-plan__legend { display: flex; flex-wrap: wrap; gap: 8px 14px; color: #777; font-size: 9.5px; font-weight: 700; }
+.legend-dot { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 999px; vertical-align: -1px; }
+.legend-dot--required { background: #d97706; }
+.legend-dot--station { background: linear-gradient(90deg, #2563eb 0 18%, #ea580c 18% 34%, #0f766e 34% 50%, #7c3aed 50% 66%, #db2777 66% 82%, #059669 82% 100%); }
+.deployment-plan__steps { display: grid; gap: 9px; }
+.deployment-step { display: grid; grid-template-columns: 42px minmax(150px, 1.2fr) repeat(4, minmax(132px, .9fr)); gap: 8px; align-items: end; padding: 10px; border: 1px solid #e1e1dc; border-left: 5px solid #64748b; border-radius: 8px; background: #fff; }
+.deployment-step--station-printing { border-left-color: #2563eb; background: #f8fbff; }
+.deployment-step--station-cutting { border-left-color: #ea580c; background: #fffaf6; }
+.deployment-step--station-component { border-left-color: #0f766e; background: #f7fffd; }
+.deployment-step--station-sewing { border-left-color: #7c3aed; background: #fbf9ff; }
+.deployment-step--station-finishing { border-left-color: #db2777; background: #fff9fc; }
+.deployment-step--station-qc { border-left-color: #059669; background: #f7fffa; }
+.deployment-step--station-packing { border-left-color: #65a30d; background: #fbfff5; }
+.deployment-step--station-general { border-left-color: #64748b; background: #fbfcfd; }
+.deployment-step__sequence { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 7px; background: #111; color: #fff; font-size: 9px; font-weight: 900; letter-spacing: .08em; }
+.deployment-step__process { align-self: center; min-width: 0; }
+.deployment-step__process b { display: block; color: #262626; font-size: 11px; line-height: 1.35; }
+.deployment-step__process span { display: block; margin-top: 3px; color: #7d7d7d; font-size: 9px; line-height: 1.42; }
+.deployment-step label { display: grid; gap: 4px; min-width: 0; color: #686868; font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .065em; }
+.deployment-step select { width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1080px) {
+  .deployment-step { grid-template-columns: 38px minmax(180px, 1fr) repeat(2, minmax(150px, 1fr)); }
+}
+@media (max-width: 680px) {
+  .deployment-step { grid-template-columns: 34px minmax(0, 1fr); align-items: start; }
+  .deployment-step__process { padding-top: 4px; }
+  .deployment-step label { grid-column: 2; }
+  .deployment-step__sequence { width: 29px; height: 29px; }
+}

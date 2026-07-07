@@ -3,8 +3,8 @@ import { Badge } from './components/Badge'
 import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
-import { initialWorkOrders, routeTemplates, teamMembers } from './data/mockData'
-import type { ArtworkApprovalStatus, Priority, ProcessStep, Role, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderType } from './types/workOrder'
+import { initialWorkOrders, routeTemplates, staffDirectory, teamMembers, workAreas } from './data/mockData'
+import type { ArtworkApprovalStatus, Priority, ProcessStep, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderType } from './types/workOrder'
 import {
   artworkApprovalLabels,
   deriveOrderStatus,
@@ -61,6 +61,38 @@ const CUSTOM_OPTIONS: Array<{ id: 'printing' | 'cutting' | 'lining' | 'zipper' |
   { id: 'finishing', label: 'Finishing / rapikan' },
 ]
 
+const MACHINE_OPTIONS = [
+  'Mimaki Eco Solvent 01',
+  'Mimaki Sublim 01',
+  'Meja Cutting',
+  'Mesin Jahit / Rakit',
+  'Area Finishing',
+  'Meja QC',
+  'Area Packing',
+  'Manual / tidak memakai mesin',
+]
+
+function getDirectoryName(id: string | undefined, directory: StaffDirectoryMember[] = staffDirectory, fallback = 'Belum ditetapkan') {
+  if (!id) return fallback
+  return directory.find((member) => member.id === id)?.name
+    || teamMembers.find((member) => member.id === id)?.name
+    || fallback
+}
+
+function defaultLocationForStation(station: Station) {
+  const prefixes: Record<Station, string> = {
+    printing: 'Area Printing',
+    cutting: 'Area Cutting',
+    component: 'Area Komponen',
+    sewing: 'Meja Jahit',
+    finishing: 'Area Finishing',
+    qc: 'Area QC',
+    packing: 'Area Packing',
+    general: 'Area Produksi Umum',
+  }
+  return workAreas.find((area) => area.startsWith(prefixes[station])) || 'Area Produksi Umum'
+}
+
 function createId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 }
@@ -93,9 +125,13 @@ function stationForRole(role: Role) {
 }
 
 function canUseProcess(currentUser: TeamMember, step: ProcessStep) {
-  if (currentUser.role === 'operator') return step.assignedUserId === currentUser.id && !['qc', 'packing'].includes(step.station)
-  if (currentUser.role === 'qc') return step.assignedUserId === currentUser.id && step.station === 'qc'
-  if (currentUser.role === 'packing') return step.assignedUserId === currentUser.id && step.station === 'packing'
+  const assignedToDirectory = staffDirectory.some((member) => member.id === step.assignedUserId)
+  if (currentUser.role === 'operator') {
+    return !['qc', 'packing'].includes(step.station)
+      && (step.assignedUserId === currentUser.id || (assignedToDirectory && currentUser.stations.includes(step.station)))
+  }
+  if (currentUser.role === 'qc') return step.station === 'qc' && (step.assignedUserId === currentUser.id || assignedToDirectory)
+  if (currentUser.role === 'packing') return step.station === 'packing' && (step.assignedUserId === currentUser.id || assignedToDirectory)
   return false
 }
 
@@ -230,8 +266,8 @@ export default function App() {
 
   const qcTasks = useMemo(() => readyTasks.filter(({ step }) => step.station === 'qc'), [readyTasks])
   const stationTasks = useMemo(() => sortedOrders.flatMap((order) => order.steps
-    .filter((step) => step.assignedUserId === currentUser.id && ['ready', 'in_progress', 'hold', 'waiting_wip'].includes(deriveStepStatus(order, step)))
-    .map((step) => ({ order, step }))), [currentUser.id, sortedOrders])
+    .filter((step) => canUseProcess(currentUser, step) && ['ready', 'in_progress', 'hold', 'waiting_wip'].includes(deriveStepStatus(order, step)))
+    .map((step) => ({ order, step }))), [currentUser, sortedOrders])
 
   const activeOrders = workOrders.filter((order) => !['done', 'closed', 'cancelled'].includes(deriveOrderStatus(order)))
   const overdueOrders = activeOrders.filter(isOverdue)
@@ -323,7 +359,7 @@ export default function App() {
         <span className="queue-row__copy">
           <b>{step.name} <small>· {order.code}</small></b>
           <span>{order.product}</span>
-          <em>{step.assignedUserId ? teamMembers.find((member) => member.id === step.assignedUserId)?.name : 'PIC belum ditentukan'} · Target {formatNumber(step.plannedQty)}</em>
+          <em>{getDirectoryName(step.assignedUserId, staffDirectory, 'PIC belum ditentukan')} · {step.reportToUserId ? `Lapor ke ${getDirectoryName(step.reportToUserId)}` : 'Lapor ke belum ditentukan'} · Target {formatNumber(step.plannedQty)}</em>
         </span>
         <span className="queue-row__right"><Badge kind="station" value={step.station} /><Badge kind="priority" value={order.priority} /><Badge kind="process" value={stepStatus} /></span>
       </button>
@@ -437,7 +473,7 @@ export default function App() {
                     <td><b>{getProgress(order)}%</b><small>{formatNumber(order.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0))}/{formatNumber(order.qty)} terpacking</small></td>
                     <td><Badge kind="status" value={status} />{getBlockerSummary(order) ? <small className="text-warning">{getBlockerSummary(order)}</small> : null}</td>
                     <td><b>{current?.assignedUserId ? teamMembers.find((member) => member.id === current.assignedUserId)?.name : 'Belum ditetapkan'}</b><small>{current ? <><Badge kind="station" value={current.station} /> {current.name}</> : 'Belum ada proses aktif'}</small></td>
-                    <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Jadwalkan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
+                    <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
                 })}
               </tbody></table></div>
@@ -511,6 +547,7 @@ export default function App() {
         workOrder={selectedWorkOrder}
         currentUser={currentUser}
         team={teamMembers}
+        staffDirectory={staffDirectory}
         clock={clock}
         onClose={() => setSelectedId(null)}
         onSchedule={() => setModal({ type: 'schedule', workOrder: selectedWorkOrder })}
@@ -545,6 +582,8 @@ export default function App() {
             reworkCount: 0,
             createdAt: new Date().toISOString(),
             createdBy: currentUser.name,
+            routeTemplateId: data.template as NonNullable<WorkOrder['routeTemplateId']>,
+            customRoute: data.customRoute,
             steps: buildSteps(data.template, data.qty, data.customRoute),
             history: [makeHistory(currentUser, 'WO draft dibuat', `Alur ${routeTemplates.find((template) => template.id === data.template)?.title || 'custom'} dipilih.`)],
           }
@@ -557,18 +596,19 @@ export default function App() {
 
       {modal?.type === 'schedule' ? <ScheduleModal
         workOrder={modal.workOrder}
+        staffDirectory={staffDirectory}
         onClose={() => setModal(null)}
         onSave={(data) => {
-          const firstStep = modal.workOrder.steps.find((step) => !step.inputs.length) || modal.workOrder.steps[0]
+          const plannedSteps = data.steps.map((step, index) => ({ ...step, sequence: index + 1, status: 'not_ready' as const, startedAt: undefined, activeSeconds: 0 }))
           const updated: WorkOrder = {
             ...modal.workOrder,
             status: 'scheduled',
             machine: data.machine,
             scheduledDate: data.scheduledDate,
-            steps: modal.workOrder.steps.map((step) => step.id === firstStep.id ? { ...step, assignedUserId: data.assignedUserId, location: data.location, status: 'ready' } : step),
-            history: [makeHistory(currentUser, 'WO dijadwalkan', `Langkah pertama: ${firstStep.name} · ${data.machine} · ${data.scheduledDate}.`), ...modal.workOrder.history],
+            steps: plannedSteps,
+            history: [makeHistory(currentUser, 'WO direncanakan & dideploy', `${plannedSteps.length} proses: PIC, lapor ke, dan area kerja sudah ditetapkan sebelum WO dirilis. Jadwal ${data.scheduledDate} · ${data.machine}.`), ...modal.workOrder.history],
           }
-          applyOrderUpdate(updated, 'WO dijadwalkan dan siap dirilis ke stasiun pertama.')
+          applyOrderUpdate(updated, 'WO dideploy. PIC, pelaporan, dan lokasi sudah tercatat per proses.')
           setModal(null)
         }}
       /> : null}
@@ -576,11 +616,12 @@ export default function App() {
       {modal?.type === 'assign' ? <AssignProcessModal
         workOrder={modal.workOrder}
         step={modal.step}
+        staffDirectory={staffDirectory}
         onClose={() => setModal(null)}
         onSave={(data) => {
-          const updated = updateStep(modal.workOrder, modal.step.id, { assignedUserId: data.assignedUserId, location: data.location, status: 'ready' })
-          updated.history = [makeHistory(currentUser, `PIC ditetapkan · ${modal.step.name}`, `Lokasi ${data.location || 'belum diisi'}.`), ...modal.workOrder.history]
-          applyOrderUpdate(updated, 'PIC proses diperbarui.')
+          const updated = updateStep(modal.workOrder, modal.step.id, { assignedUserId: data.assignedUserId, reportToUserId: data.reportToUserId, location: data.location, status: 'ready' })
+          updated.history = [makeHistory(currentUser, `PIC & jalur laporan ditetapkan · ${modal.step.name}`, `PIC ${getDirectoryName(data.assignedUserId)} · Lapor ke ${getDirectoryName(data.reportToUserId)} · Area ${data.location || 'belum diisi'}.`), ...modal.workOrder.history]
+          applyOrderUpdate(updated, 'PIC, lapor ke, dan lokasi proses diperbarui.')
           setModal(null)
         }}
       /> : null}
@@ -1010,32 +1051,78 @@ function ConfirmArtworkModal({ workOrder, step, onClose, onConfirm }: { workOrde
   </Modal>
 }
 
-function ScheduleModal({ workOrder, onClose, onSave }: { workOrder: WorkOrder; onClose: () => void; onSave: (data: { assignedUserId: string; machine: string; scheduledDate: string; location: string }) => void }) {
-  const available = teamMembers.filter((member) => member.role === 'operator')
-  const [data, setData] = useState({ assignedUserId: available[0]?.id || '', machine: 'Mimaki Eco Solvent 01', scheduledDate: new Date().toISOString().slice(0, 10), location: 'Area produksi' })
-  const firstStep = workOrder.steps.find((step) => !step.inputs.length) || workOrder.steps[0]
+function ScheduleModal({ workOrder, staffDirectory: directory, onClose, onSave }: {
+  workOrder: WorkOrder
+  staffDirectory: StaffDirectoryMember[]
+  onClose: () => void
+  onSave: (data: { machine: string; scheduledDate: string; steps: ProcessStep[] }) => void
+}) {
+  const [machine, setMachine] = useState(workOrder.machine || 'Manual / tidak memakai mesin')
+  const [scheduledDate, setScheduledDate] = useState(workOrder.scheduledDate || new Date().toISOString().slice(0, 10))
+  const [plannedSteps, setPlannedSteps] = useState<ProcessStep[]>(() => workOrder.steps.map((step) => ({
+    ...step,
+    reportToUserId: step.reportToUserId || 'u-ppic',
+    location: step.location || defaultLocationForStation(step.station),
+  })))
+  const [error, setError] = useState('')
   const artworkReadiness = getArtworkReadiness(workOrder)
-  return <Modal title="Jadwalkan Work Order" subtitle={workOrder.artworkApprovalRequired ? 'PPIC dapat memesan kapasitas lebih awal. Printing akan terkunci sampai FINAL PRINT FILE disetujui.' : 'PPIC dapat memesan kapasitas lebih awal. Artwork bersifat opsional untuk WO ini.'} onClose={onClose}>
-    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave(data) }}>
-      <div className="callout"><Icon name="calendar" /><span><b>{workOrder.code}</b> · Langkah pertama: <b>{firstStep.name}</b></span></div>
-      {workOrder.artworkApprovalRequired && !artworkReadiness.ready ? <div className="callout callout--warning"><Icon name="warning" /><span><b>Artwork belum siap untuk cetak.</b> {artworkReadiness.reason} WO tetap dapat dijadwalkan, tetapi tombol mulai cetak akan terkunci sampai file final disetujui.</span></div> : null}
-      <label><span>Operator langkah pertama</span><select value={data.assignedUserId} onChange={(event) => setData({ ...data, assignedUserId: event.target.value })}>{available.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
-      <label><span>Mesin / sumber daya</span><input value={data.machine} onChange={(event) => setData({ ...data, machine: event.target.value })} /></label>
-      <div className="form-grid"><label><span>Tanggal jadwal</span><input type="date" value={data.scheduledDate} onChange={(event) => setData({ ...data, scheduledDate: event.target.value })} /></label><label><span>Lokasi</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} /></label></div>
-      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Jadwalkan WO</button></footer>
+
+  const updatePlan = (stepId: string, patch: Partial<ProcessStep>) => {
+    setPlannedSteps((current) => current.map((step) => step.id === stepId ? {
+      ...step,
+      ...patch,
+      location: patch.station && !step.location ? defaultLocationForStation(patch.station) : patch.location ?? step.location,
+    } : step))
+  }
+
+  const deploy = () => {
+    const missing = plannedSteps.filter((step) => !step.assignedUserId || !step.reportToUserId || !step.location)
+    if (missing.length) {
+      setError(`Lengkapi PIC, lapor ke, dan area kerja pada ${missing.length} proses sebelum WO dideploy.`)
+      return
+    }
+    onSave({ machine, scheduledDate, steps: plannedSteps })
+  }
+
+  return <Modal title="Rencanakan & deploy Work Order" subtitle="Admin atau PPIC menetapkan pemilik proses, jalur pelaporan, dan lokasi kerja sebelum WO masuk ke lantai produksi." onClose={onClose} wide>
+    <form className="form-stack deployment-plan" onSubmit={(event) => { event.preventDefault(); deploy() }}>
+      <div className="callout"><Icon name="calendar" /><span><b>{workOrder.code}</b> · Rute dan WIP sudah dibuat saat Draft. Di tahap ini, Admin / PPIC menetapkan siapa yang bekerja, melapor ke siapa, dan bekerja di area mana.</span></div>
+      <div className="callout callout--warning"><Icon name="warning" /><span><b>Aturan aman:</b> urutan dan WIP dari template tidak diubah dari layar ini agar alur tidak putus. Ubah stasiun, PIC, pelaporan, dan lokasi hanya sebelum deploy; setelah proses mulai, struktur WO terkunci untuk audit.</span></div>
+      {workOrder.artworkApprovalRequired && !artworkReadiness.ready ? <div className="callout callout--warning"><Icon name="image" /><span><b>Artwork belum siap untuk cetak.</b> {artworkReadiness.reason} WO tetap dapat dideploy, tetapi Printing akan terkunci sampai file final disetujui.</span></div> : null}
+      <div className="form-grid">
+        <label><span>Tanggal jadwal</span><input type="date" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} /></label>
+        <label><span>Mesin / sumber daya utama</span><select value={machine} onChange={(event) => setMachine(event.target.value)}>{MACHINE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      </div>
+      <section className="deployment-plan__section">
+        <div><p className="eyebrow">Penugasan sebelum deploy</p><h3>Rute, PIC, pelaporan, dan area</h3><span>Semua pilihan menggunakan dropdown agar WO tetap konsisten dan mudah dibaca operator.</span></div>
+        <div className="deployment-plan__legend"><span><i className="legend-dot legend-dot--required" /> Wajib sebelum deploy</span><span><i className="legend-dot legend-dot--station" /> Warna mengikuti stasiun proses</span></div>
+        <div className="deployment-plan__steps">
+          {plannedSteps.map((step, index) => <article className={`deployment-step deployment-step--station-${step.station}`} key={step.id}>
+            <div className="deployment-step__sequence">P{String(index + 1).padStart(2, '0')}</div>
+            <div className="deployment-step__process"><b>{step.name}</b><span>{step.inputs.length ? `Butuh: ${step.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {step.output}</span></div>
+            <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station, location: defaultLocationForStation(event.target.value as Station) })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+            <label><span>PIC pelaksana *</span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+            <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{directory.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+            <label><span>Area kerja / laporan hasil *</span><select value={step.location || ''} onChange={(event) => updatePlan(step.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
+          </article>)}
+        </div>
+      </section>
+      {error ? <div className="callout callout--danger"><Icon name="warning" /><span>{error}</span></div> : null}
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Simpan sebagai draft</button><button type="submit" className="button button--primary"><Icon name="play" /> Deploy WO</button></footer>
     </form>
   </Modal>
 }
 
-function AssignProcessModal({ workOrder, step, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; onClose: () => void; onSave: (data: { assignedUserId: string; location: string }) => void }) {
-  const eligible = teamMembers.filter((member) => member.stations.includes(step.station) || (step.station === 'general' && member.role === 'operator'))
-  const [assignedUserId, setAssignedUserId] = useState(step.assignedUserId || eligible[0]?.id || '')
-  const [location, setLocation] = useState(step.location || '')
-  return <Modal title="Atur PIC proses" subtitle="Setelah proses memiliki hasil atau timer, penugasan rute akan dikunci untuk menjaga audit trail." onClose={onClose}>
-    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ assignedUserId, location }) }}>
+function AssignProcessModal({ workOrder, step, staffDirectory: directory, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; staffDirectory: StaffDirectoryMember[]; onClose: () => void; onSave: (data: { assignedUserId: string; reportToUserId: string; location: string }) => void }) {
+  const [assignedUserId, setAssignedUserId] = useState(step.assignedUserId || '')
+  const [reportToUserId, setReportToUserId] = useState(step.reportToUserId || 'u-ppic')
+  const [location, setLocation] = useState(step.location || defaultLocationForStation(step.station))
+  return <Modal title="Atur PIC & jalur laporan" subtitle="Gunakan daftar Team PGE agar penugasan konsisten. Perubahan ini hanya boleh sebelum proses mempunyai hasil atau timer." onClose={onClose}>
+    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ assignedUserId, reportToUserId, location }) }}>
       <div className="callout"><Icon name="station" /><span><b>{workOrder.code}</b> · {step.name} · {stationLabels[step.station]}</span></div>
-      <label><span>PIC / stasiun</span><select value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}>{eligible.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
-      <label><span>Lokasi kerja atau lokasi output WIP</span><input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Contoh: Meja Jahit 2 / Rak WIP Jahit" /></label>
+      <label><span>PIC pelaksana</span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC</option>{directory.filter((member) => member.kind === 'staff').map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+      <label><span>Lapor ke</span><select required value={reportToUserId} onChange={(event) => setReportToUserId(event.target.value)}><option value="">Pilih penerima laporan</option>{directory.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+      <label><span>Area kerja / laporan hasil</span><select required value={location} onChange={(event) => setLocation(event.target.value)}><option value="">Pilih area</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Simpan penugasan</button></footer>
     </form>
   </Modal>
