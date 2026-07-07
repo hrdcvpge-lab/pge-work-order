@@ -1,4 +1,4 @@
-import type { ProcessStep, RouteTemplate, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
+import type { ProcessStep, RouteTemplate, StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
 
 const daysFromToday = (offset: number) => {
   const date = new Date()
@@ -39,6 +39,52 @@ export const teamMembers: TeamMember[] = [
   { id: 'u-qc', name: 'Maya · QC', role: 'qc', stations: ['qc'] },
   { id: 'u-pack', name: 'Fitri · Packing', role: 'packing', stations: ['packing'] },
   { id: 'u-manager', name: 'Arif · Manager', role: 'manager', stations: ['general'] },
+]
+
+
+export const staffDirectory: StaffDirectoryMember[] = [
+  { id: 'u-admin', name: 'Rena · Admin Operasional', kind: 'planner' },
+  { id: 'u-ppic', name: 'Dimas · PPIC', kind: 'planner' },
+  { id: 'staff-210703', name: 'Anisyatul Hasanah', employeeNumber: '210703', kind: 'staff' },
+  { id: 'staff-191101', name: 'Ary Indriyani', employeeNumber: '191101', kind: 'staff' },
+  { id: 'staff-220501', name: 'Assadiyah Husniyah', employeeNumber: '220501', kind: 'staff' },
+  { id: 'staff-210502', name: 'Chantya Serly Akhlidya', employeeNumber: '210502', kind: 'staff' },
+  { id: 'staff-240804', name: 'Dewi Kusumaningrum', employeeNumber: '240804', kind: 'staff' },
+  { id: 'staff-240502', name: 'Dhea Amalia Fadhillah', employeeNumber: '240502', kind: 'staff' },
+  { id: 'staff-231104', name: 'Imelda Sarita Sri Suniati', employeeNumber: '231104', kind: 'staff' },
+  { id: 'staff-220502', name: 'Katharina Andini Eliza Pranawati', employeeNumber: '220502', kind: 'staff' },
+  { id: 'staff-230101', name: 'Linda Novianti', employeeNumber: '230101', kind: 'staff' },
+  { id: 'staff-251105', name: 'Olivia Ayu Ramadhani', employeeNumber: '251105', kind: 'staff' },
+  { id: 'staff-240501', name: 'Parni', employeeNumber: '240501', kind: 'staff' },
+  { id: 'staff-231003', name: 'Riska Amelia', employeeNumber: '231003', kind: 'staff' },
+  { id: 'staff-251104', name: 'Riska Iga Mawarni', employeeNumber: '251104', kind: 'staff' },
+  { id: 'staff-200401', name: 'Rusmiyati', employeeNumber: '200401', kind: 'staff' },
+  { id: 'staff-251107', name: 'Sholekah Nur Khoiroh', employeeNumber: '251107', kind: 'staff' },
+  { id: 'staff-201202', name: 'Sukini', employeeNumber: '201202', kind: 'staff' },
+  { id: 'staff-230602', name: 'Tety Dya Pangastuti', employeeNumber: '230602', kind: 'staff' },
+  { id: 'staff-241205', name: 'Titania Susilowati Fauziyah', employeeNumber: '241205', kind: 'staff' },
+  { id: 'staff-210201', name: 'Wahyu Albino', employeeNumber: '210201', kind: 'staff' },
+  { id: 'staff-251206', name: 'Yohana Aprilia Putri', employeeNumber: '251206', kind: 'staff' },
+  { id: 'staff-250201', name: 'Jumiati', employeeNumber: '250201', kind: 'staff' },
+  { id: 'staff-260401', name: 'Ilham Rizky Nugroho', employeeNumber: '260401', kind: 'staff' },
+  { id: 'staff-260502', name: 'Pandu Yogatama', employeeNumber: '260502', kind: 'staff' },
+  { id: 'staff-260603', name: 'Aloysius Gonzaga Pri Sambodo Nugroho', employeeNumber: '260603', kind: 'staff' },
+]
+
+export const workAreas = [
+  'Area Printing · Mimaki Eco Solvent 01',
+  'Area Printing · Mimaki Sublim 01',
+  'Area Cutting',
+  'Rak WIP Cetak',
+  'Rak WIP Jahit',
+  'Area Komponen',
+  'Meja Jahit 1',
+  'Meja Jahit 2',
+  'Area Finishing',
+  'Area QC',
+  'Area Packing',
+  'Gudang / Pengiriman',
+  'Area Produksi Umum',
 ]
 
 export const routeTemplates: RouteTemplate[] = [
