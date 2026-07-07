@@ -3,12 +3,15 @@ import { Badge } from './Badge'
 import { Icon } from './Icon'
 import type { ProcessStep, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
 import {
+  artworkApprovalLabels,
   deriveOrderStatus,
   deriveStepStatus,
   formatDate,
   formatDateTime,
   formatDuration,
   formatNumber,
+  getApprovedPrimaryArtwork,
+  getArtworkReadiness,
   getAvailableInputCap,
   getBlockerSummary,
   getOrderActiveSeconds,
@@ -37,6 +40,7 @@ type Props = {
   onQcDecision: (step: ProcessStep) => void
   onCloseOrder: () => void
   onCancel: () => void
+  onManageArtwork: () => void
 }
 
 const getMemberName = (id: string | undefined, team: TeamMember[]) => team.find((member) => member.id === id)?.name || 'Belum ditugaskan'
@@ -47,6 +51,12 @@ function canOperateStep(currentUser: TeamMember, step: ProcessStep) {
   if (currentUser.role === 'qc') return step.assignedUserId === currentUser.id && step.station === 'qc'
   if (currentUser.role === 'packing') return step.assignedUserId === currentUser.id && step.station === 'packing'
   return false
+}
+
+function approvalClass(image: WorkOrderReferenceImage) {
+  if (image.approvalStatus === 'approved') return 'artwork-status artwork-status--approved'
+  if (image.approvalStatus === 'superseded') return 'artwork-status artwork-status--superseded'
+  return 'artwork-status artwork-status--pending'
 }
 
 export function WorkOrderDrawer({
@@ -65,17 +75,20 @@ export function WorkOrderDrawer({
   onQcDecision,
   onCloseOrder,
   onCancel,
+  onManageArtwork,
 }: Props) {
   const status = deriveOrderStatus(workOrder)
   const progress = getProgress(workOrder)
   const blocker = getBlockerSummary(workOrder)
   const currentStep = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
     || workOrder.steps.find((step) => ['ready', 'waiting_wip'].includes(deriveStepStatus(workOrder, step)))
-
   const totalGood = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0)
   const totalReject = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyReject, 0)
   const artworkImages = workOrder.referenceImages || []
+  const finalArtwork = getApprovedPrimaryArtwork(workOrder)
+  const artworkReadiness = getArtworkReadiness(workOrder)
   const [activeArtwork, setActiveArtwork] = useState<WorkOrderReferenceImage | null>(null)
+  const canManageArtwork = ['admin', 'ppic'].includes(currentUser.role)
 
   return (
     <div className="drawer-layer" role="presentation">
@@ -92,18 +105,11 @@ export function WorkOrderDrawer({
 
         <section className="drawer-status-band">
           <div>
-            <div className="drawer-status-band__topline">
-              <Badge kind="status" value={status} />
-              <Badge kind="priority" value={workOrder.priority} />
-              <Badge kind="type" value={workOrder.type} />
-            </div>
+            <div className="drawer-status-band__topline"><Badge kind="status" value={status} /><Badge kind="priority" value={workOrder.priority} /><Badge kind="type" value={workOrder.type} /></div>
             <strong>{currentStep ? `${currentStep.name} · ${stationLabels[currentStep.station]}` : 'WO sudah selesai'}</strong>
             <span>{blocker || (isOverdue(workOrder) ? 'Melewati target tanggal' : 'Tidak ada blocker aktif')}</span>
           </div>
-          <div className="drawer-progress-number">
-            <b>{progress}%</b>
-            <span>Progress packing</span>
-          </div>
+          <div className="drawer-progress-number"><b>{progress}%</b><span>Progress packing</span></div>
         </section>
 
         <section className="drawer-section">
@@ -117,13 +123,28 @@ export function WorkOrderDrawer({
         </section>
 
         <section className="drawer-section artwork-section">
-          <div className="section-heading"><div><p className="eyebrow">Artwork & motif</p><h3>Referensi visual untuk operator</h3></div><span>{artworkImages.length} gambar</span></div>
+          <div className="section-heading">
+            <div><p className="eyebrow">Artwork & motif</p><h3>Kontrol file sebelum Printing</h3></div>
+            <div className="section-heading__actions"><span>{artworkImages.length} file</span>{canManageArtwork ? <button type="button" className="button button--secondary button--compact" onClick={onManageArtwork}>Kelola artwork</button> : null}</div>
+          </div>
+
+          {finalArtwork ? <article className="final-artwork-card">
+            <button type="button" className="final-artwork-card__image" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={`FINAL PRINT FILE ${finalArtwork.name}`} /></button>
+            <div className="final-artwork-card__copy">
+              <span className="final-artwork-card__eyebrow"><Icon name="check" /> FINAL PRINT FILE</span>
+              <h4>{finalArtwork.name}</h4>
+              <p>Versi <b>{finalArtwork.version}</b> · disetujui untuk cetak oleh <b>{finalArtwork.approvedBy || 'PPIC / R&D'}</b>.</p>
+              {finalArtwork.printNote ? <div className="final-artwork-card__note">{finalArtwork.printNote}</div> : null}
+              <button type="button" className="button button--primary button--compact" onClick={() => setActiveArtwork(finalArtwork)}><Icon name="image" /> Buka file final</button>
+            </div>
+          </article> : artworkReadiness.ready ? null : <div className="artwork-missing"><Icon name="warning" /><span><b>Printing belum boleh dimulai.</b> {artworkReadiness.reason}{canManageArtwork ? ' Kelola artwork untuk menetapkan versi final dan persetujuan.' : ''}</span></div>}
+
           {artworkImages.length ? <>
-            <p className="artwork-section__hint">Operator Printing harus membuka gambar ini sebelum mulai, terutama bila satu produk memiliki beberapa motif atau variasi desain.</p>
+            <p className="artwork-section__hint">Hanya file bertanda <b>FINAL PRINT FILE</b> yang boleh dijadikan acuan produksi. Versi lama tetap disimpan untuk audit, tetapi tidak boleh dicetak.</p>
             <div className="artwork-gallery">
-              {artworkImages.map((image, index) => <button type="button" className="artwork-gallery__item" key={image.id} onClick={() => setActiveArtwork(image)}>
-                <img src={image.dataUrl} alt={`Artwork ${index + 1}: ${image.name}`} />
-                <span><b>Motif {index + 1}</b><small>{image.name}</small></span>
+              {artworkImages.map((image) => <button type="button" className={`artwork-gallery__item${image.isPrimary ? ' artwork-gallery__item--primary' : ''}`} key={image.id} onClick={() => setActiveArtwork(image)}>
+                <img src={image.dataUrl} alt={`${image.name} ${image.version}`} />
+                <span><small>{image.version}</small><b>{image.isPrimary ? 'FINAL PRINT FILE' : image.name}</b><em className={approvalClass(image)}>{artworkApprovalLabels[image.approvalStatus]}</em></span>
               </button>)}
             </div>
           </> : <div className="artwork-missing"><Icon name="image" /><span><b>Belum ada gambar motif.</b> Tambahkan artwork sebelum proses Printing dimulai agar operator tidak hanya mengandalkan deskripsi teks.</span></div>}
@@ -141,17 +162,7 @@ export function WorkOrderDrawer({
           <div className="route-flow">
             {workOrder.steps.map((step, index) => {
               const stepStatus = deriveStepStatus(workOrder, step)
-              return (
-                <div className="route-flow__group" key={step.id}>
-                  {index ? <Icon name="arrow" className="route-flow__arrow" /> : null}
-                  <article className={`route-card route-card--${stepStatus}`}>
-                    <span>P{String(index + 1).padStart(2, '0')}</span>
-                    <b>{step.name}</b>
-                    <small>{stationLabels[step.station]}</small>
-                    <Badge kind="process" value={stepStatus} />
-                  </article>
-                </div>
-              )
+              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><Badge kind="process" value={stepStatus} /></article></div>
             })}
           </div>
         </section>
@@ -163,87 +174,38 @@ export function WorkOrderDrawer({
               const stepStatus = deriveStepStatus(workOrder, step)
               const inputCap = getAvailableInputCap(workOrder, step)
               const canOperate = canOperateStep(currentUser, step)
-              const isAssigned = Boolean(step.assignedUserId)
               const canAssign = currentUser.role === 'ppic' && getStepRecordedQty(step) === 0 && !step.startedAt
-              const capText = Number.isFinite(inputCap) ? `${formatNumber(inputCap)} tersedia` : 'Mulai langsung'
-              return (
-                <article className="process-ticket" key={step.id}>
-                  <header>
-                    <div>
-                      <span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span>
-                      <h4>{step.name}</h4>
-                      <p>PIC: <b>{getMemberName(step.assignedUserId, team)}</b> · Lokasi: {step.location || 'Belum ditetapkan'}</p>
-                    </div>
-                    <Badge kind="process" value={stepStatus} />
-                  </header>
-
-                  <div className="process-ticket__metrics">
-                    <div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div>
-                    <div><span>Baik</span><b>{formatNumber(step.qtyGood)}</b></div>
-                    <div><span>Rework</span><b>{formatNumber(step.qtyRework)}</b></div>
-                    <div><span>Reject</span><b>{formatNumber(step.qtyReject)}</b></div>
-                  </div>
-
-                  <div className="process-ticket__meta-grid">
-                    <div><span>Input WIP</span><b>{step.inputs.length ? step.inputs.join(' + ') : 'Tidak menunggu WIP'}</b><small>{step.inputs.length ? capText : 'Boleh dimulai setelah PPIC merilis WO'}</small></div>
-                    <div><span>Output WIP</span><b>{step.output}</b><small>Sisa target: {formatNumber(getStepRemaining(step))}</small></div>
-                  </div>
-
-                  {step.station === 'printing' ? <div className="printing-artwork-panel">
-                    <div><Icon name="image" /><span><b>Motif yang harus dicetak</b><small>{artworkImages.length ? `${artworkImages.length} gambar referensi tersedia. Buka gambar sebelum mulai cetak.` : 'Belum ada artwork visual. Tahan proses dan minta Admin / PPIC menambahkan gambar.'}</small></span></div>
-                    {artworkImages.length ? <div className="printing-artwork-panel__thumbs">{artworkImages.map((image, index) => <button type="button" key={image.id} onClick={() => setActiveArtwork(image)}><img src={image.dataUrl} alt={`Motif ${index + 1}`} /><span>{index + 1}</span></button>)}</div> : null}
-                  </div> : null}
-
-                  {step.inputs.length ? (
-                    <div className="wip-chip-row">
-                      {step.inputs.map((input) => <span key={input} className="wip-chip">{input}: <b>{formatNumber(getWipBalance(workOrder, input))}</b></span>)}
-                    </div>
-                  ) : null}
-
-                  {step.holdReason ? <div className="hold-box"><Icon name="warning" /> <span><b>HOLD</b> · {step.holdReason}</span></div> : null}
-
-                  <div className="process-ticket__footer">
-                    <span className={`timer-inline${step.startedAt ? ' timer-inline--running' : ''}`}><Icon name="clock" /> {formatDuration(getStepTimerSeconds(step, clock))}</span>
-                    <div className="process-ticket__actions">
-                      {canAssign ? <button className="button button--small button--secondary" onClick={() => onAssign(step)}>Atur PIC</button> : null}
-                      {canOperate && stepStatus === 'ready' ? <button className="button button--small button--primary" onClick={() => onStart(step)}><Icon name="play" /> Mulai</button> : null}
-                      {canOperate && stepStatus === 'in_progress' ? <button className="button button--small button--secondary" onClick={() => onPause(step)}><Icon name="pause" /> Jeda</button> : null}
-                      {canOperate && stepStatus === 'in_progress' && step.station === 'qc' ? <button className="button button--small button--primary" onClick={() => onQcDecision(step)}>Keputusan QC</button> : null}
-                      {canOperate && stepStatus === 'in_progress' && step.station !== 'qc' ? <button className="button button--small button--primary" onClick={() => onLogResult(step)}>Catat hasil</button> : null}
-                      {canOperate && ['ready', 'in_progress'].includes(stepStatus) ? <button className="button button--small button--danger-soft" onClick={() => onHold(step)}>HOLD</button> : null}
-                      {canOperate && stepStatus === 'hold' ? <button className="button button--small button--success-soft" onClick={() => onResume(step)}>Lanjutkan</button> : null}
-                      {!isAssigned && currentUser.role === 'operator' ? <span className="quiet-action">Belum ditugaskan ke Anda</span> : null}
-                    </div>
-                  </div>
-                </article>
-              )
+              const isPrinting = step.station === 'printing'
+              const startBlocked = isPrinting && !artworkReadiness.ready
+              return <article className="process-ticket" key={step.id}>
+                <header><div><span className="process-ticket__index">P{String(index + 1).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team)}</b> · Lokasi: {step.location || 'Belum ditetapkan'}</p></div><Badge kind="process" value={stepStatus} /></header>
+                <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
+                <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
+                {isPrinting ? <div className={`printing-final-panel${finalArtwork ? '' : ' printing-final-panel--blocked'}`}>
+                  {finalArtwork ? <><button type="button" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={finalArtwork.name} /></button><div><span>FINAL PRINT FILE · {finalArtwork.version}</span><b>{finalArtwork.name}</b><small>{finalArtwork.printNote || 'Buka file final sebelum mulai cetak.'}</small>{step.artworkConfirmedAt ? <em><Icon name="check" /> Diverifikasi oleh {step.artworkConfirmedBy} · {formatDateTime(step.artworkConfirmedAt)}</em> : <em><Icon name="warning" /> Operator wajib review dan konfirmasi file final saat mulai.</em>}</div></> : <><Icon name="warning" /><div><b>Printing diblokir</b><small>{artworkReadiness.reason}</small></div></>}
+                </div> : null}
+                {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
+                <footer className="process-ticket__footer"><div className="process-ticket__actions">
+                  {canAssign ? <button className="button button--secondary" onClick={() => onAssign(step)}>Atur PIC</button> : null}
+                  {canOperate && stepStatus === 'ready' ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {isPrinting ? 'Review & mulai cetak' : 'Mulai proses'}</button> : null}
+                  {canOperate && stepStatus === 'in_progress' ? <button className="button button--secondary" onClick={() => onPause(step)}><Icon name="pause" /> Jeda</button> : null}
+                  {canOperate && stepStatus === 'in_progress' && step.station === 'qc' ? <button className="button button--primary" onClick={() => onQcDecision(step)}>Keputusan QC</button> : null}
+                  {canOperate && stepStatus === 'in_progress' && step.station !== 'qc' ? <button className="button button--primary" onClick={() => onLogResult(step)}>Catat hasil</button> : null}
+                  {canOperate && ['ready', 'in_progress'].includes(stepStatus) ? <button className="button button--danger-soft" onClick={() => onHold(step)}>HOLD</button> : null}
+                  {canOperate && stepStatus === 'hold' ? <button className="button button--success-soft" onClick={() => onResume(step)}>Lanjutkan</button> : null}
+                </div></footer>
+              </article>
             })}
           </div>
         </section>
 
         <section className="drawer-section">
-          <div className="section-heading"><div><p className="eyebrow">Riwayat</p><h3>Jejak keputusan WO</h3></div></div>
-          <ol className="history-list">
-            {workOrder.history.map((item) => (
-              <li key={item.id}>
-                <span className={`history-list__dot history-list__dot--${item.role}`} />
-                <div>
-                  <div className="history-list__topline"><b>{item.title}</b><time>{formatDateTime(item.at)}</time></div>
-                  <p><strong>{item.actor}</strong>{item.note ? ` · ${item.note}` : ''}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <div className="section-heading"><div><p className="eyebrow">Riwayat</p><h3>Audit aktivitas WO</h3></div></div>
+          <div className="history-list">{workOrder.history.map((item) => <article className="history-item" key={item.id}><span className="history-item__dot" /><div><b>{item.title}</b><p>{item.actor}{item.note ? ` · ${item.note}` : ''}</p></div><time>{formatDateTime(item.at)}</time></article>)}</div>
         </section>
       </aside>
-      {activeArtwork ? <div className="artwork-lightbox" role="dialog" aria-modal="true" aria-label={`Preview ${activeArtwork.name}`} onMouseDown={() => setActiveArtwork(null)}>
-        <button type="button" className="artwork-lightbox__backdrop" aria-label="Tutup preview" />
-        <figure onMouseDown={(event) => event.stopPropagation()}>
-          <button type="button" className="icon-button" aria-label="Tutup preview" onClick={() => setActiveArtwork(null)}><Icon name="close" /></button>
-          <img src={activeArtwork.dataUrl} alt={activeArtwork.name} />
-          <figcaption><b>{activeArtwork.name}</b><span>Pastikan motif, warna, dan versi artwork sesuai sebelum proses Printing dimulai.</span></figcaption>
-        </figure>
-      </div> : null}
+
+      {activeArtwork ? <div className="artwork-lightbox" role="dialog" aria-modal="true" aria-label="Preview artwork"><button className="artwork-lightbox__backdrop" onClick={() => setActiveArtwork(null)} aria-label="Tutup preview" /><figure><button type="button" className="icon-button" onClick={() => setActiveArtwork(null)} aria-label="Tutup preview"><Icon name="close" /></button><img src={activeArtwork.dataUrl} alt={activeArtwork.name} /><figcaption><span className={approvalClass(activeArtwork)}>{activeArtwork.isPrimary ? 'FINAL PRINT FILE · ' : ''}{artworkApprovalLabels[activeArtwork.approvalStatus]}</span><b>{activeArtwork.name} · {activeArtwork.version}</b><span>{activeArtwork.printNote || 'Tidak ada instruksi cetak tambahan.'}</span></figcaption></figure></div> : null}
     </div>
   )
 }
