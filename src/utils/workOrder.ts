@@ -1,10 +1,29 @@
-import type { ArtworkApprovalStatus, Priority, ProcessStatus, ProcessStep, Role, Station, WorkOrder, WorkOrderReferenceImage, WorkOrderStatus, WorkOrderType } from '../types/workOrder'
-
+import type {
+  ArtworkApprovalStatus,
+  Priority,
+  ProcessStatus,
+  ProcessStep,
+  Role,
+  ShortfallStatus,
+  Station,
+  WorkOrder,
+  WorkOrderReferenceImage,
+  WorkOrderStatus,
+  WorkOrderType,
+} from '../types/workOrder'
 
 export const artworkApprovalLabels: Record<ArtworkApprovalStatus, string> = {
   pending: 'Menunggu persetujuan',
   approved: 'Disetujui untuk cetak',
   superseded: 'Versi lama / diganti',
+}
+
+export const shortfallStatusLabels: Record<ShortfallStatus, string> = {
+  action_required: 'Butuh keputusan',
+  replacement_planned: 'Penggantian direncanakan',
+  approved_short_shipment: 'Kirim kurang disetujui',
+  cancelled_remaining: 'Sisa dibatalkan',
+  resolved: 'Terpenuhi',
 }
 
 export const getPrimaryArtwork = (workOrder: WorkOrder): WorkOrderReferenceImage | undefined =>
@@ -18,9 +37,6 @@ export const hasPrintingStep = (workOrder: WorkOrder) =>
 
 export const getArtworkReadiness = (workOrder: WorkOrder) => {
   if (!hasPrintingStep(workOrder)) return { ready: true, reason: '' }
-
-  // Artwork is optional by default. Admin / PPIC may enable this control only
-  // for WOs where the motif, artwork version, or print instruction must be verified.
   if (!workOrder.artworkApprovalRequired) return { ready: true, reason: '' }
 
   const images = workOrder.referenceImages || []
@@ -119,6 +135,60 @@ export const getStepTimerSeconds = (step: ProcessStep, clock = Date.now()) => {
   return step.activeSeconds + Math.max(0, Math.floor((clock - started) / 1000))
 }
 
+export const getPackingGood = (workOrder: WorkOrder) => workOrder.steps
+  .filter((step) => step.station === 'packing')
+  .reduce((total, step) => total + step.qtyGood, 0)
+
+export const getPackingReject = (workOrder: WorkOrder) => workOrder.steps
+  .filter((step) => step.station === 'packing')
+  .reduce((total, step) => total + step.qtyReject, 0)
+
+export const getShortfallSummary = (workOrder: WorkOrder) => {
+  const shortfalls = workOrder.shortfalls || []
+  const packedGood = getPackingGood(workOrder)
+  const approvedShortShipmentQty = shortfalls
+    .filter((item) => item.status === 'approved_short_shipment')
+    .reduce((total, item) => total + item.qty, 0)
+  const cancelledRemainingQty = shortfalls
+    .filter((item) => item.status === 'cancelled_remaining')
+    .reduce((total, item) => total + item.qty, 0)
+  const actionRequiredQty = shortfalls
+    .filter((item) => item.status === 'action_required')
+    .reduce((total, item) => total + item.qty, 0)
+  const replacementPlannedQty = shortfalls
+    .filter((item) => item.status === 'replacement_planned')
+    .reduce((total, item) => total + item.qty, 0)
+  const approvedQty = approvedShortShipmentQty + cancelledRemainingQty
+  const remainingQty = Math.max(0, workOrder.qty - packedGood - approvedQty)
+  const replacementRemainingQty = remainingQty > 0 ? Math.min(replacementPlannedQty, remainingQty) : 0
+  const requiresActionQty = actionRequiredQty + Math.max(0, remainingQty - replacementRemainingQty - actionRequiredQty)
+
+  return {
+    shortfalls,
+    packedGood,
+    approvedShortShipmentQty,
+    cancelledRemainingQty,
+    approvedQty,
+    actionRequiredQty,
+    replacementPlannedQty,
+    replacementRemainingQty,
+    remainingQty,
+    requiresActionQty,
+    isFulfilled: remainingQty === 0 && actionRequiredQty === 0,
+  }
+}
+
+export const getCloseReadiness = (workOrder: WorkOrder) => {
+  const summary = getShortfallSummary(workOrder)
+  if (summary.actionRequiredQty > 0) {
+    return { ready: false, reason: `${formatNumber(summary.actionRequiredQty)} unit reject/kurang belum diputuskan oleh Admin atau PPIC.` }
+  }
+  if (summary.remainingQty > 0) {
+    return { ready: false, reason: `Masih kurang ${formatNumber(summary.remainingQty)} unit dari target WO. Selesaikan penggantian atau setujui pengiriman kurang/sisa dibatalkan.` }
+  }
+  return { ready: true, reason: '' }
+}
+
 export const isFinalStep = (step: ProcessStep) => step.station === 'packing'
 
 export const getWipBalance = (workOrder: WorkOrder, wipName: string) => {
@@ -161,11 +231,8 @@ export const getCurrentProcess = (workOrder: WorkOrder) => {
 export const deriveOrderStatus = (workOrder: WorkOrder): WorkOrderStatus => {
   if (['draft', 'closed', 'cancelled'].includes(workOrder.status)) return workOrder.status
 
-  const packed = workOrder.steps
-    .filter((step) => step.station === 'packing')
-    .reduce((total, step) => total + step.qtyGood + step.qtyReject, 0)
-
-  if (packed >= workOrder.qty) return 'done'
+  const summary = getShortfallSummary(workOrder)
+  if (summary.isFulfilled) return 'done'
 
   const current = getCurrentProcess(workOrder)
   if (current?.station === 'qc') return 'qc'
@@ -176,10 +243,8 @@ export const deriveOrderStatus = (workOrder: WorkOrder): WorkOrderStatus => {
 }
 
 export const getProgress = (workOrder: WorkOrder) => {
-  const packed = workOrder.steps
-    .filter((step) => step.station === 'packing')
-    .reduce((total, step) => total + step.qtyGood + step.qtyReject, 0)
-  return Math.min(100, Math.round((packed / Math.max(1, workOrder.qty)) * 100))
+  const summary = getShortfallSummary(workOrder)
+  return Math.min(100, Math.round(((summary.packedGood + summary.approvedQty) / Math.max(1, workOrder.qty)) * 100))
 }
 
 export const isOverdue = (workOrder: WorkOrder) => {
@@ -190,6 +255,10 @@ export const isOverdue = (workOrder: WorkOrder) => {
 }
 
 export const getBlockerSummary = (workOrder: WorkOrder) => {
+  const shortfall = getShortfallSummary(workOrder)
+  if (shortfall.actionRequiredQty > 0) return `Kekurangan ${formatNumber(shortfall.actionRequiredQty)} unit · butuh keputusan`
+  if (shortfall.replacementRemainingQty > 0) return `Penggantian ${formatNumber(shortfall.replacementRemainingQty)} unit berjalan`
+
   const holds = workOrder.steps.filter((step) => deriveStepStatus(workOrder, step) === 'hold')
   if (holds.length) return `HOLD · ${holds[0].name}`
 
@@ -206,12 +275,17 @@ export const sortWorkOrders = (a: WorkOrder, b: WorkOrder) => {
   const priorityScore: Record<Priority, number> = { p1: 1, p2: 2, p3: 3, p4: 4 }
   const statusA = deriveOrderStatus(a)
   const statusB = deriveOrderStatus(b)
+  const summaryA = getShortfallSummary(a)
+  const summaryB = getShortfallSummary(b)
+  const actionA = summaryA.actionRequiredQty > 0 ? 0 : 1
+  const actionB = summaryB.actionRequiredQty > 0 ? 0 : 1
   const holdA = getBlockerSummary(a).startsWith('HOLD') ? 0 : 1
   const holdB = getBlockerSummary(b).startsWith('HOLD') ? 0 : 1
   const mtoA = a.type === 'mto' ? 0 : 1
   const mtoB = b.type === 'mto' ? 0 : 1
 
   return (
+    actionA - actionB ||
     holdA - holdB ||
     Number(isOverdue(b)) - Number(isOverdue(a)) ||
     mtoA - mtoB ||
