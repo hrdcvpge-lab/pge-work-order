@@ -419,3 +419,60 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
   .process-ticket--live::after,
   .wo-table__row--live-current td:first-child::after { animation: none !important; }
 }
+
+/* v0.2.8 — Reject, shortfall and replacement control.
+   Red = decision required, amber = replacement in progress, teal/green = authorised or fulfilled. */
+.metric-card--shortfall { --metric: #e11d48; }
+
+.badge--shortfall--action_required { color: #9f1239; border-color: #fecdd3; background: #fff1f2; }
+.badge--shortfall--replacement_planned { color: #92400e; border-color: #fde68a; background: #fffbeb; }
+.badge--shortfall--approved_short_shipment { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; }
+.badge--shortfall--cancelled_remaining { color: #475569; border-color: #cbd5e1; background: #f8fafc; }
+.badge--shortfall--resolved { color: #166534; border-color: #bbf7d0; background: #f0fdf4; }
+
+.shortfall-section { position: relative; overflow: hidden; }
+.shortfall-section--action { border-left: 5px solid #e11d48; background: linear-gradient(90deg, #fff7f8 0%, #fff 42%); }
+.shortfall-section--replacement { border-left: 5px solid #f59e0b; background: linear-gradient(90deg, #fffbed 0%, #fff 42%); }
+.shortfall-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.shortfall-metric-grid > div { min-width: 0; padding: 10px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.shortfall-metric-grid span { display: block; color: #777; font-size: 8.5px; font-weight: 800; letter-spacing: .08em; line-height: 1.35; text-transform: uppercase; }
+.shortfall-metric-grid b { display: block; margin-top: 5px; color: #222; font-size: 17px; letter-spacing: -.04em; line-height: 1; }
+.shortfall-list { display: grid; gap: 8px; margin-top: 11px; }
+.shortfall-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid #e6e6e2; border-radius: 8px; background: #fff; }
+.shortfall-row--action_required { border-color: #fecdd3; background: #fff8f9; }
+.shortfall-row--replacement_planned { border-color: #fde68a; background: #fffdf4; }
+.shortfall-row--approved_short_shipment { border-color: #99f6e4; background: #f5fffd; }
+.shortfall-row--cancelled_remaining { border-color: #cbd5e1; background: #fafcff; }
+.shortfall-row--resolved { border-color: #bbf7d0; background: #f7fff9; }
+.shortfall-row__copy { min-width: 0; display: grid; gap: 3px; }
+.shortfall-row__copy b { color: #262626; font-size: 11px; }
+.shortfall-row__copy span, .shortfall-row__copy small { color: #777; font-size: 10px; line-height: 1.45; }
+.shortfall-row__right { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.shortfall-empty { display: flex; align-items: center; gap: 8px; margin-top: 11px; padding: 10px; border: 1px solid #bbf7d0; border-radius: 8px; background: #f0fdf4; color: #166534; font-size: 10.5px; line-height: 1.45; }
+.shortfall-empty svg, .shortfall-close-note svg { flex: 0 0 auto; width: 16px; height: 16px; }
+.shortfall-close-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 9px 10px; border: 1px solid #fecdd3; border-radius: 8px; background: #fff1f2; color: #9f1239; font-size: 10px; line-height: 1.45; }
+
+.route-card--replacement { border-top-width: 4px; border-top-color: #f59e0b !important; background: #fffdf5 !important; }
+.process-ticket--replacement { border-left-color: #f59e0b !important; background: linear-gradient(90deg, rgba(245, 158, 11, .07), #fff 34%); }
+.replacement-indicator { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #fde68a; border-radius: 999px; padding: 3px 7px; background: #fffbeb; color: #92400e; font-size: 8px; font-style: normal; font-weight: 900; letter-spacing: .045em; line-height: 1.2; text-transform: uppercase; }
+
+.shortfall-action-modal__summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.shortfall-action-modal__summary > div { padding: 10px; border: 1px solid #fecdd3; border-radius: 8px; background: #fff7f8; }
+.shortfall-action-modal__summary span { display: block; color: #9f1239; font-size: 8.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.shortfall-action-modal__summary b { display: block; margin-top: 5px; color: #4c0519; font-size: 14px; line-height: 1.15; }
+.shortfall-action-modal__choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.shortfall-action-modal__notice { display: flex; gap: 8px; align-items: flex-start; padding: 10px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 10.5px; line-height: 1.5; }
+.shortfall-action-modal__notice svg { flex: 0 0 auto; width: 17px; height: 17px; }
+.shortfall-action-modal__notice--replacement { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+.shortfall-action-modal__notice--short_shipment { border-color: #99f6e4; background: #f0fdfa; color: #0f766e; }
+.shortfall-action-modal__notice--cancel_remaining { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+
+@media (max-width: 1080px) {
+  .metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .shortfall-metric-grid, .shortfall-action-modal__summary, .shortfall-action-modal__choices { grid-template-columns: 1fr; }
+  .shortfall-row { align-items: flex-start; flex-direction: column; }
+  .shortfall-row__right { justify-content: flex-start; }
+}
+@media (min-width: 1081px) { .metric-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); } }

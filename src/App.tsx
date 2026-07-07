@@ -4,7 +4,7 @@ import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { initialWorkOrders, routeTemplates, staffDirectory, teamMembers, workAreas } from './data/mockData'
-import type { ArtworkApprovalStatus, Priority, ProcessStep, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderType } from './types/workOrder'
+import type { ArtworkApprovalStatus, Priority, ProcessStep, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
   artworkApprovalLabels,
   deriveOrderStatus,
@@ -16,9 +16,13 @@ import {
   getArtworkReadiness,
   getAvailableInputCap,
   getBlockerSummary,
+  getCloseReadiness,
   getCurrentProcess,
   getOrderActiveSeconds,
+  getPackingGood,
   getProgress,
+  getShortfallSummary,
+  shortfallStatusLabels,
   getStepRecordedQty,
   getWipBalance,
   isOverdue,
@@ -38,6 +42,7 @@ type ModalState =
   | { type: 'log-result'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'hold'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'qc'; workOrder: WorkOrder; step: ProcessStep }
+  | { type: 'shortfall-action'; workOrder: WorkOrder; shortfall: WorkOrderShortfall }
   | { type: 'manage-artwork'; workOrder: WorkOrder }
   | { type: 'confirm-artwork'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'confirm-close'; workOrder: WorkOrder }
@@ -220,6 +225,81 @@ function updateStep(workOrder: WorkOrder, stepId: string, patch: Partial<Process
   }
 }
 
+function reindexSteps(steps: ProcessStep[]) {
+  return steps.map((step, index) => ({ ...step, sequence: index + 1 }))
+}
+
+function insertAfterStep(steps: ProcessStep[], sourceStepId: string, additions: ProcessStep[]) {
+  const sourceIndex = steps.findIndex((step) => step.id === sourceStepId)
+  if (sourceIndex < 0) return reindexSteps([...steps, ...additions])
+  return reindexSteps([...steps.slice(0, sourceIndex + 1), ...additions, ...steps.slice(sourceIndex + 1)])
+}
+
+function makeShortfall(source: ProcessStep, qty: number, origin: WorkOrderShortfall['origin'], note: string): WorkOrderShortfall {
+  return {
+    id: createId('shortfall'),
+    origin,
+    sourceStepId: source.id,
+    sourceStepName: source.name,
+    sourceStation: source.station,
+    qty,
+    status: 'action_required',
+    createdAt: new Date().toISOString(),
+    note,
+  }
+}
+
+function makeReworkStep(source: ProcessStep, qty: number, output: string): ProcessStep {
+  return {
+    id: createId('rework'),
+    sequence: source.sequence + 1,
+    name: `Perbaikan · ${source.name}`,
+    station: source.station,
+    assignedUserId: source.assignedUserId,
+    reportToUserId: source.reportToUserId,
+    plannedQty: qty,
+    inputs: [],
+    output,
+    status: 'not_ready',
+    qtyGood: 0,
+    qtyRework: 0,
+    qtyReject: 0,
+    activeSeconds: 0,
+    location: source.location,
+  }
+}
+
+function buildReplacementSteps(workOrder: WorkOrder, shortfall: WorkOrderShortfall, restartFromStepId: string) {
+  const sourceIndex = workOrder.steps.findIndex((step) => step.id === shortfall.sourceStepId)
+  const restartIndex = workOrder.steps.findIndex((step) => step.id === restartFromStepId)
+  if (sourceIndex < 0 || restartIndex < 0 || restartIndex > sourceIndex) return []
+
+  const originals = workOrder.steps
+    .slice(restartIndex, sourceIndex + 1)
+    .filter((step) => !step.isReplacement)
+    .filter((step) => shortfall.origin === 'qc_final_reject' ? step.station !== 'packing' : true)
+
+  return originals.map((source) => ({
+    ...source,
+    id: createId('replacement'),
+    sequence: 0,
+    name: `Pengganti · ${source.name}`,
+    plannedQty: shortfall.qty,
+    status: 'not_ready' as const,
+    qtyGood: 0,
+    qtyRework: 0,
+    qtyReject: 0,
+    activeSeconds: 0,
+    startedAt: undefined,
+    holdReason: undefined,
+    artworkConfirmedBy: undefined,
+    artworkConfirmedAt: undefined,
+    artworkConfirmedImageId: undefined,
+    isReplacement: true,
+    replacementForShortfallId: shortfall.id,
+  }))
+}
+
 export default function App() {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>(initialWorkOrders)
   const [currentUserId, setCurrentUserId] = useState('u-admin')
@@ -289,6 +369,11 @@ export default function App() {
 
   const activeOrders = scopedOrders.filter((order) => !['done', 'closed', 'cancelled'].includes(deriveOrderStatus(order)))
   const overdueOrders = activeOrders.filter(isOverdue)
+  const shortfallOrders = scopedOrders.filter((order) => {
+    const summary = getShortfallSummary(order)
+    return summary.actionRequiredQty > 0 || summary.replacementRemainingQty > 0
+  })
+  const shortfallActionQty = scopedOrders.reduce((total, order) => total + getShortfallSummary(order).actionRequiredQty, 0)
 
   const showToast = (message: string) => {
     setToast(message)
@@ -356,9 +441,19 @@ export default function App() {
   }
 
   const closeOrder = (order: WorkOrder) => {
+    const readiness = getCloseReadiness(order)
+    if (!readiness.ready) {
+      showToast(`WO belum dapat ditutup. ${readiness.reason}`)
+      setModal(null)
+      return
+    }
+
     const updated: WorkOrder = {
       ...order,
       status: 'closed',
+      shortfalls: (order.shortfalls || []).map((item) => item.status === 'replacement_planned'
+        ? { ...item, status: 'resolved' as const, resolvedBy: currentUser.name, resolvedAt: new Date().toISOString(), resolutionNote: 'Target WO sudah terpenuhi di Packing.' }
+        : item),
       history: [makeHistory(currentUser, 'WO ditutup', 'Administrasi penutupan dan pembaruan stok akan diproses backend nanti.'), ...order.history],
     }
     applyOrderUpdate(updated, 'WO ditutup.')
@@ -444,6 +539,7 @@ export default function App() {
               <article className="metric-card metric-card--purple"><span>QC menunggu</span><b>{formatNumber(qcTasks.length)}</b><small>Perlu keputusan QC</small></article>
               <article className="metric-card metric-card--amber"><span>Menunggu WIP</span><b>{formatNumber(waitingTasks.length)}</b><small>Input belum cukup</small></article>
               <article className="metric-card metric-card--red"><span>HOLD aktif</span><b>{formatNumber(holdTasks.length)}</b><small>Butuh pemilik keputusan</small></article>
+              <article className="metric-card metric-card--shortfall"><span>Kekurangan qty</span><b>{formatNumber(shortfallActionQty)}</b><small>{shortfallOrders.length} WO butuh tindakan</small></article>
               <article className="metric-card metric-card--danger"><span>Lewat target</span><b>{formatNumber(overdueOrders.length)}</b><small>Prioritas pemulihan</small></article>
             </div>
 
@@ -498,7 +594,7 @@ export default function App() {
                     <td><b>{order.product}</b><small>{order.referenceNote || 'Tidak ada catatan referensi'}</small></td>
                     <td><b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b><Badge kind="priority" value={order.priority} /></td>
                     <td><b>{getProgress(order)}%</b><small>{formatNumber(order.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0))}/{formatNumber(order.qty)} terpacking</small></td>
-                    <td><Badge kind="status" value={status} />{getBlockerSummary(order) ? <small className="text-warning">{getBlockerSummary(order)}</small> : null}</td>
+                    <td><Badge kind="status" value={status} />{getShortfallSummary(order).actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : getShortfallSummary(order).replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : null}{getBlockerSummary(order) ? <small className={getShortfallSummary(order).actionRequiredQty > 0 ? 'text-danger' : 'text-warning'}>{getBlockerSummary(order)}</small> : null}</td>
                     <td><b>{indicatorStep?.assignedUserId ? getDirectoryName(indicatorStep.assignedUserId, staffDirectory) : 'Belum ditetapkan'}</b><small>{indicatorStep ? <><Badge kind="station" value={indicatorStep.station} /> {indicatorStep.name}{showLiveIndicator ? <span className="current-process-indicator" title="Proses ini sedang berjalan">● Aktif sekarang</span> : null}</> : 'Belum ada proses aktif'}</small></td>
                     <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
@@ -588,6 +684,7 @@ export default function App() {
         onCloseOrder={() => setModal({ type: 'confirm-close', workOrder: selectedWorkOrder })}
         onCancel={() => setModal({ type: 'confirm-cancel', workOrder: selectedWorkOrder })}
         onManageArtwork={() => setModal({ type: 'manage-artwork', workOrder: selectedWorkOrder })}
+        onResolveShortfall={(shortfall) => setModal({ type: 'shortfall-action', workOrder: selectedWorkOrder, shortfall })}
       /> : null}
 
       {modal?.type === 'create' ? <CreateWorkOrderModal
@@ -663,7 +760,8 @@ export default function App() {
           if (total <= 0) return showToast('Isi minimal satu hasil proses.')
           if (total > cap) return showToast(`Total hasil tidak boleh melebihi ${formatNumber(cap)} unit.`)
           const elapsed = modal.step.startedAt ? Math.max(0, Math.floor((Date.now() - new Date(modal.step.startedAt).getTime()) / 1_000)) : 0
-          const updated = updateStep(modal.workOrder, modal.step.id, {
+          const patchedStep: ProcessStep = {
+            ...modal.step,
             qtyGood: modal.step.qtyGood + data.good,
             qtyRework: modal.step.qtyRework + data.rework,
             qtyReject: modal.step.qtyReject + data.reject,
@@ -671,9 +769,33 @@ export default function App() {
             startedAt: undefined,
             status: getStepRecordedQty({ ...modal.step, qtyGood: modal.step.qtyGood + data.good, qtyRework: modal.step.qtyRework + data.rework, qtyReject: modal.step.qtyReject + data.reject }) >= modal.step.plannedQty ? 'completed' : 'ready',
             location: data.location || modal.step.location,
-          })
-          updated.history = [makeHistory(currentUser, `Hasil dicatat · ${modal.step.name}`, `Baik ${data.good}, rework ${data.rework}, reject ${data.reject}. ${data.note || ''}`), ...modal.workOrder.history]
-          applyOrderUpdate(updated, 'Hasil proses tersimpan. Timer otomatis dijeda.')
+          }
+          let updated: WorkOrder = {
+            ...modal.workOrder,
+            steps: modal.workOrder.steps.map((step) => step.id === patchedStep.id ? patchedStep : step),
+            history: [makeHistory(currentUser, `Hasil dicatat · ${modal.step.name}`, `Baik ${data.good}, rework ${data.rework}, reject ${data.reject}. ${data.note || ''}`), ...modal.workOrder.history],
+          }
+
+          if (data.rework > 0) {
+            const reworkStep = makeReworkStep(patchedStep, data.rework, patchedStep.output)
+            updated = {
+              ...updated,
+              steps: insertAfterStep(updated.steps, patchedStep.id, [reworkStep]),
+              reworkCount: updated.reworkCount + 1,
+              history: [makeHistory(currentUser, `Tiket perbaikan dibuat · ${modal.step.name}`, `${data.rework} unit perlu perbaikan sebelum diteruskan ke proses berikutnya.`), ...updated.history],
+            }
+          }
+
+          if (data.reject > 0) {
+            const shortfall = makeShortfall(patchedStep, data.reject, 'process_reject', data.note)
+            updated = {
+              ...updated,
+              shortfalls: [shortfall, ...(updated.shortfalls || [])],
+              history: [makeHistory(currentUser, `Kekurangan terdeteksi · ${patchedStep.name}`, `${data.reject} unit reject. Admin / PPIC harus memilih penggantian, kirim kurang, atau sisa dibatalkan.`), ...updated.history],
+            }
+          }
+
+          applyOrderUpdate(updated, data.reject > 0 ? 'Hasil disimpan. Reject membuat kekurangan yang perlu keputusan Admin / PPIC.' : 'Hasil proses tersimpan. Timer otomatis dijeda.')
           setModal(null)
         }}
       /> : null}
@@ -695,43 +817,109 @@ export default function App() {
         step={modal.step}
         onClose={() => setModal(null)}
         onSave={(data) => {
+          const elapsed = modal.step.startedAt ? Math.max(0, Math.floor((Date.now() - new Date(modal.step.startedAt).getTime()) / 1_000)) : 0
           if (data.decision === 'pass') {
-            const elapsed = modal.step.startedAt ? Math.max(0, Math.floor((Date.now() - new Date(modal.step.startedAt).getTime()) / 1_000)) : 0
-            const updated = updateStep(modal.workOrder, modal.step.id, {
+            const patchedQc: ProcessStep = {
+              ...modal.step,
               qtyGood: modal.step.qtyGood + data.qty,
               qtyReject: modal.step.qtyReject + data.reject,
               activeSeconds: modal.step.activeSeconds + elapsed,
               startedAt: undefined,
               status: modal.step.qtyGood + data.qty + modal.step.qtyReject + data.reject >= modal.step.plannedQty ? 'completed' : 'ready',
-            })
-            updated.history = [makeHistory(currentUser, 'QC diputuskan · Lulus', `Lulus ${data.qty}, reject final ${data.reject}. ${data.note || ''}`), ...modal.workOrder.history]
-            applyOrderUpdate(updated, 'Keputusan QC disimpan.')
+            }
+            let updated: WorkOrder = {
+              ...modal.workOrder,
+              steps: modal.workOrder.steps.map((step) => step.id === patchedQc.id ? patchedQc : step),
+              history: [makeHistory(currentUser, 'QC diputuskan · Lulus', `Lulus ${data.qty}, reject final ${data.reject}. ${data.note || ''}`), ...modal.workOrder.history],
+            }
+            if (data.reject > 0) {
+              const shortfall = makeShortfall(patchedQc, data.reject, 'qc_final_reject', data.note)
+              updated = {
+                ...updated,
+                shortfalls: [shortfall, ...(updated.shortfalls || [])],
+                history: [makeHistory(currentUser, 'Kekurangan akhir dari QC', `${data.reject} unit reject final. Admin / PPIC perlu memutuskan penggantian atau pengiriman kurang.`), ...updated.history],
+              }
+            }
+            applyOrderUpdate(updated, data.reject > 0 ? 'Keputusan QC disimpan. Reject final masuk kontrol kekurangan.' : 'Keputusan QC disimpan.')
           } else {
-            const previous = modal.workOrder.steps.find((step) => step.sequence === modal.step.sequence - 1)
-            const reworkStep: ProcessStep = {
-              id: createId('rework'),
-              sequence: modal.step.sequence,
-              name: `Rework · ${previous?.name || 'Produksi'}`,
-              station: previous?.station || 'sewing',
-              assignedUserId: previous?.assignedUserId,
+            const previous = [...modal.workOrder.steps].slice(0, modal.workOrder.steps.findIndex((step) => step.id === modal.step.id)).reverse().find((step) => step.station !== 'qc' && step.station !== 'packing')
+            const patchedQc: ProcessStep = {
+              ...modal.step,
+              qtyRework: modal.step.qtyRework + data.qty,
+              activeSeconds: modal.step.activeSeconds + elapsed,
+              startedAt: undefined,
+              status: modal.step.qtyGood + modal.step.qtyReject + modal.step.qtyRework + data.qty >= modal.step.plannedQty ? 'completed' : 'ready',
+            }
+            const reworkOutput = modal.step.inputs[0] || 'Produk siap QC'
+            const reworkStep = makeReworkStep(previous || modal.step, data.qty, reworkOutput)
+            const recheckStep: ProcessStep = {
+              ...modal.step,
+              id: createId('qc-recheck'),
+              sequence: 0,
+              name: `QC ulang · ${modal.step.name}`,
               plannedQty: data.qty,
-              inputs: [],
-              output: 'Produk siap QC',
-              status: 'ready',
+              status: 'not_ready',
               qtyGood: 0,
               qtyRework: 0,
               qtyReject: 0,
               activeSeconds: 0,
-              location: previous?.location,
+              startedAt: undefined,
+              holdReason: undefined,
             }
-            const patchedQc = { ...modal.step, status: 'ready' as const, startedAt: undefined }
+            const baseSteps = modal.workOrder.steps.map((step) => step.id === patchedQc.id ? patchedQc : step)
             const updated: WorkOrder = {
               ...modal.workOrder,
               reworkCount: modal.workOrder.reworkCount + 1,
-              steps: modal.workOrder.steps.flatMap((step) => step.id === modal.step.id ? [reworkStep, patchedQc] : [step]).map((step, index) => ({ ...step, sequence: index + 1 })),
-              history: [makeHistory(currentUser, 'QC dikembalikan ke rework', `${data.qty} unit kembali ke ${reworkStep.name}. ${data.note || ''}`), ...modal.workOrder.history],
+              steps: insertAfterStep(baseSteps, patchedQc.id, [reworkStep, recheckStep]),
+              history: [makeHistory(currentUser, 'QC dikembalikan ke rework', `${data.qty} unit kembali ke ${reworkStep.name}, lalu wajib masuk QC ulang. ${data.note || ''}`), ...modal.workOrder.history],
             }
-            applyOrderUpdate(updated, 'QC mengembalikan produk ke rework.')
+            applyOrderUpdate(updated, 'QC mengembalikan produk ke rework dan membuat tiket QC ulang.')
+          }
+          setModal(null)
+        }}
+      /> : null}
+
+      {modal?.type === 'shortfall-action' ? <ShortfallActionModal
+        workOrder={modal.workOrder}
+        shortfall={modal.shortfall}
+        onClose={() => setModal(null)}
+        onSave={(data) => {
+          const selectedShortfall = modal.workOrder.shortfalls?.find((item) => item.id === modal.shortfall.id)
+          if (!selectedShortfall) return
+          let updated: WorkOrder = { ...modal.workOrder }
+          if (data.action === 'replacement') {
+            const replacementSteps = buildReplacementSteps(updated, selectedShortfall, data.restartFromStepId)
+            if (!replacementSteps.length) return showToast('Rute penggantian tidak dapat dibuat. Pilih proses awal yang valid.')
+            const sourceIndex = updated.steps.findIndex((step) => step.id === selectedShortfall.sourceStepId)
+            updated = {
+              ...updated,
+              steps: reindexSteps([...updated.steps.slice(0, sourceIndex + 1), ...replacementSteps, ...updated.steps.slice(sourceIndex + 1)]),
+              shortfalls: (updated.shortfalls || []).map((item) => item.id === selectedShortfall.id ? {
+                ...item,
+                status: 'replacement_planned' as const,
+                replacementStartStepId: data.restartFromStepId,
+                replacementStepIds: replacementSteps.map((step) => step.id),
+                resolvedBy: currentUser.name,
+                resolvedAt: new Date().toISOString(),
+                resolutionNote: data.note,
+              } : item),
+              history: [makeHistory(currentUser, 'Penggantian direncanakan', `${selectedShortfall.qty} unit akan diulang dari ${replacementSteps[0].name.replace('Pengganti · ', '')} sampai ${replacementSteps.at(-1)?.name.replace('Pengganti · ', '')}. ${data.note}`), ...updated.history],
+            }
+            applyOrderUpdate(updated, 'Rute penggantian dibuat dan diberi warna amber sampai target pulih.')
+          } else {
+            const nextStatus = data.action === 'short_shipment' ? 'approved_short_shipment' as const : 'cancelled_remaining' as const
+            updated = {
+              ...updated,
+              shortfalls: (updated.shortfalls || []).map((item) => item.id === selectedShortfall.id ? {
+                ...item,
+                status: nextStatus,
+                resolvedBy: currentUser.name,
+                resolvedAt: new Date().toISOString(),
+                resolutionNote: data.note,
+              } : item),
+              history: [makeHistory(currentUser, data.action === 'short_shipment' ? 'Pengiriman kurang disetujui' : 'Sisa WO dibatalkan', `${selectedShortfall.qty} unit dari ${selectedShortfall.sourceStepName}. ${data.note}`), ...updated.history],
+            }
+            applyOrderUpdate(updated, data.action === 'short_shipment' ? 'Kekurangan disetujui sebagai pengiriman kurang.' : 'Sisa kuantitas dibatalkan oleh Admin / PPIC.')
           }
           setModal(null)
         }}
@@ -1193,6 +1381,57 @@ function QcModal({ workOrder, step, onClose, onSave }: { workOrder: WorkOrder; s
       <div className="form-grid"><label><span>{decision === 'pass' ? 'Qty lulus QC' : 'Qty dikembalikan'}</span><input min="1" max={cap} type="number" value={qty} onChange={(event) => setQty(Number(event.target.value))} /></label>{decision === 'pass' ? <label><span>Reject final</span><input min="0" max={cap - qty} type="number" value={reject} onChange={(event) => setReject(Number(event.target.value))} /></label> : <label><span>Tujuan rework</span><input disabled value="Kembali ke stasiun proses sebelumnya" /></label>}</div>
       <label><span>Catatan QC</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={decision === 'pass' ? 'Contoh: jahitan, resleting, dan cetak sesuai sample.' : 'Contoh: 4 unit resleting tidak lurus, kembalikan ke jahit.'} /></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" disabled={qty <= 0 || qty > cap || (decision === 'pass' && qty + reject > cap)} className={`button ${decision === 'pass' ? 'button--primary' : 'button--warning'}`}>{decision === 'pass' ? 'Simpan lulus QC' : 'Buat rework'}</button></footer>
+    </form>
+  </Modal>
+}
+
+function ShortfallActionModal({
+  workOrder,
+  shortfall,
+  onClose,
+  onSave,
+}: {
+  workOrder: WorkOrder
+  shortfall: WorkOrderShortfall
+  onClose: () => void
+  onSave: (data: { action: 'replacement' | 'short_shipment' | 'cancel_remaining'; restartFromStepId: string; note: string }) => void
+}) {
+  const sourceIndex = workOrder.steps.findIndex((step) => step.id === shortfall.sourceStepId)
+  const sourceStep = workOrder.steps[sourceIndex]
+  const options = workOrder.steps
+    .slice(0, sourceIndex + 1)
+    .filter((step) => !step.isReplacement)
+    .filter((step) => shortfall.origin === 'qc_final_reject' ? !['qc', 'packing'].includes(step.station) : true)
+  const defaultStart = shortfall.origin === 'qc_final_reject'
+    ? options.at(-1)?.id || sourceStep?.id || ''
+    : sourceStep?.id || options.at(-1)?.id || ''
+  const [action, setAction] = useState<'replacement' | 'short_shipment' | 'cancel_remaining'>('replacement')
+  const [restartFromStepId, setRestartFromStepId] = useState(defaultStart)
+  const [note, setNote] = useState('')
+
+  const actionCopy = action === 'replacement'
+    ? 'Sistem membuat tiket berwarna amber untuk menjalankan ulang proses dari titik yang Anda pilih sampai titik reject. Hasil pengganti masuk kembali ke alur WO yang sama.'
+    : action === 'short_shipment'
+      ? 'Gunakan hanya bila customer setuju menerima jumlah kurang. Keputusan ini akan tetap tercatat di audit WO.'
+      : 'Gunakan hanya bila sisa tidak akan diproduksi lagi, misalnya order internal dibatalkan sebagian atau customer membatalkan sisa pesanan.'
+
+  return <Modal title="Tindakan kekurangan & penggantian" subtitle="Reject tidak boleh menghilang dari WO. Admin atau PPIC harus memilih tindakan agar target dan audit tetap jelas." onClose={onClose} wide>
+    <form className="form-stack shortfall-action-modal" onSubmit={(event) => { event.preventDefault(); onSave({ action, restartFromStepId, note }) }}>
+      <div className="shortfall-action-modal__summary">
+        <div><span>Kekurangan</span><b>{formatNumber(shortfall.qty)} unit</b></div>
+        <div><span>Sumber</span><b>{shortfall.sourceStepName}</b></div>
+        <div><span>Jenis</span><b>{shortfall.origin === 'qc_final_reject' ? 'Reject final QC' : 'Reject proses'}</b></div>
+      </div>
+      {shortfall.note ? <div className="callout callout--danger"><Icon name="warning" /><span><b>Catatan sumber:</b> {shortfall.note}</span></div> : null}
+      <div className="segmented-control shortfall-action-modal__choices">
+        <button type="button" className={action === 'replacement' ? 'is-active' : ''} onClick={() => setAction('replacement')}>Buat penggantian</button>
+        <button type="button" className={action === 'short_shipment' ? 'is-active' : ''} onClick={() => setAction('short_shipment')}>Setujui kirim kurang</button>
+        <button type="button" className={action === 'cancel_remaining' ? 'is-active' : ''} onClick={() => setAction('cancel_remaining')}>Batalkan sisa</button>
+      </div>
+      <div className={`shortfall-action-modal__notice shortfall-action-modal__notice--${action}`}><Icon name="warning" /><span>{actionCopy}</span></div>
+      {action === 'replacement' ? <label><span>Mulai penggantian dari proses</span><select required value={restartFromStepId} onChange={(event) => setRestartFromStepId(event.target.value)}>{options.map((step) => <option key={step.id} value={step.id}>P{String(step.sequence).padStart(2, '0')} · {step.name} · {stationLabels[step.station]}</option>)}</select><small>Jika bahan/WIP dari proses sebelumnya sudah habis, pilih proses yang lebih awal. Sistem akan menggandakan langkah dari titik ini sampai titik reject.</small></label> : null}
+      <label><span>Catatan keputusan</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={action === 'replacement' ? 'Contoh: ulang dari Printing karena tidak ada panel cadangan untuk Cutting.' : action === 'short_shipment' ? 'Contoh: customer menyetujui pengiriman 95 dari 100 unit melalui chat tanggal 07 Juli.' : 'Contoh: 5 unit sisa dibatalkan karena campaign berakhir.'} /></label>
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className={`button ${action === 'replacement' ? 'button--warning' : action === 'short_shipment' ? 'button--primary' : 'button--danger'}`}>{action === 'replacement' ? 'Buat rute penggantian' : action === 'short_shipment' ? 'Setujui kirim kurang' : 'Batalkan sisa'}</button></footer>
     </form>
   </Modal>
 }
