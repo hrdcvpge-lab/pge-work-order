@@ -1,4 +1,4 @@
-import type { ProcessStep, RouteTemplate, TeamMember, WorkOrder } from '../types/workOrder'
+import type { ProcessStep, RouteTemplate, TeamMember, WorkOrder, WorkOrderReferenceImage } from '../types/workOrder'
 
 const daysFromToday = (offset: number) => {
   const date = new Date()
@@ -7,6 +7,12 @@ const daysFromToday = (offset: number) => {
 }
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+
+
+const artworkPreview = (id: string, name: string, title: string, base: string, accent: string): WorkOrderReferenceImage => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560"><defs><pattern id="p" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M0 24 24 0 48 24 24 48Z" fill="${accent}" opacity=".22"/></pattern></defs><rect width="800" height="560" fill="${base}"/><rect x="30" y="30" width="740" height="500" rx="22" fill="url(#p)" stroke="${accent}" stroke-width="3"/><circle cx="400" cy="220" r="95" fill="${accent}" opacity=".95"/><path d="M330 265h140l-18-38-24 16-28-76-28 76-24-16-18 38Z" fill="${base}"/><text x="400" y="375" text-anchor="middle" font-family="Arial,sans-serif" font-size="40" font-weight="700" fill="${accent}">${title}</text><text x="400" y="415" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" fill="#ffffff">PREVIEW ARTWORK · FINAL CHECK</text></svg>`
+  return { id, name, dataUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`, createdAt: ago(180) }
+}
 
 export const teamMembers: TeamMember[] = [
   { id: 'u-admin', name: 'Rena · Admin Operasional', role: 'admin', stations: ['general'] },
@@ -78,6 +84,10 @@ export const initialWorkOrders: WorkOrder[] = [
     source: 'Shopee #PGE-260707-101',
     product: 'Cover Passport Korea · maroon · 250 pcs',
     referenceNote: 'Artwork Korea final — folder Canva / Produk Juli / Korea V3.',
+    referenceImages: [
+      artworkPreview('art-korea-01', 'Korea-maroon-front-v3.jpg', 'KOREA · MAROON', '#781A24', '#E8B949'),
+      artworkPreview('art-korea-02', 'Korea-maroon-repeat-v3.jpg', 'KOREA · REPEAT', '#4A1423', '#F3D67B'),
+    ],
     qty: 250,
     dueDate: daysFromToday(1),
     priority: 'p1',
@@ -110,6 +120,7 @@ export const initialWorkOrders: WorkOrder[] = [
     source: 'B2B · Travel Agent Nusantara',
     product: 'Dompet Pouch Landmark Mesir · 400 pcs',
     referenceNote: 'Kirim sampel final ke Sales sebelum produksi massal.',
+    referenceImages: [artworkPreview('art-egypt-01', 'Mesir-landmark-final.jpg', 'MESIR · LANDMARK', '#6A3F1B', '#F3B655')],
     qty: 400,
     dueDate: daysFromToday(2),
     priority: 'p2',
