@@ -4,7 +4,8 @@ import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
-import { initialWorkOrders, routeTemplates, staffDirectory as initialStaffDirectory, teamMembers, workAreas } from './data/mockData'
+import { routeTemplates, staffDirectory as initialStaffDirectory, teamMembers, workAreas } from './data/mockData'
+import { createLiveDraftWorkOrder, fetchLiveWorkOrders } from './lib/liveWorkOrders'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
   artworkApprovalLabels,
@@ -353,7 +354,7 @@ type AppProps = {
 }
 
 export default function App({ currentUser, onSignOut }: AppProps) {
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>(initialWorkOrders)
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryMember[]>(initialStaffDirectory)
   const [view, setView] = useState<View>('dashboard')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -363,9 +364,11 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all')
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
+  const [isLoadingWorkOrders, setIsLoadingWorkOrders] = useState(true)
+  const [workOrderError, setWorkOrderError] = useState('')
 
-  // The active user now comes from Supabase Auth. The remaining Work Order content is
-  // demonstration data until the next release reads and writes real Supabase records.
+  // The active user comes from Supabase Auth. Work Order headers and route steps
+  // now load from Supabase instead of demo data.
   const teamForViews = useMemo<TeamMember[]>(
     () => [currentUser, ...teamMembers.filter((member) => member.id !== currentUser.id)],
     [currentUser],
@@ -376,6 +379,38 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     const timer = window.setInterval(() => setClock(Date.now()), 1_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadWorkOrders() {
+      setIsLoadingWorkOrders(true)
+      setWorkOrderError('')
+      try {
+        const liveOrders = await fetchLiveWorkOrders()
+        if (!cancelled) setWorkOrders(liveOrders)
+      } catch (error) {
+        if (!cancelled) {
+          setWorkOrderError(error instanceof Error ? error.message : 'Data WO tidak dapat dimuat.')
+          setWorkOrders([])
+        }
+      } finally {
+        if (!cancelled) setIsLoadingWorkOrders(false)
+      }
+    }
+
+    void loadWorkOrders()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUser.id])
+
+  const reloadWorkOrders = async () => {
+    const liveOrders = await fetchLiveWorkOrders()
+    setWorkOrders(liveOrders)
+    return liveOrders
+  }
 
   const sortedOrders = useMemo(() => [...workOrders].sort(sortWorkOrders), [workOrders])
   const scopedOrders = useMemo(
@@ -553,7 +588,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
         <div className="sidebar__note">
           <b>Fase frontend</b>
-          <span>Login dan role sudah terverifikasi melalui Supabase. Data WO masih memakai demo sampai koneksi data produksi dirilis.</span>
+          <span>Login, employee master, dan draft WO sudah tersambung Supabase. Scheduling/progress akan disambungkan bertahap.</span>
         </div>
       </aside>
 
@@ -577,6 +612,9 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             {currentUser.role === 'admin' ? <button className="button button--primary" onClick={() => setModal({ type: 'create' })}><Icon name="plus" /> Buat WO</button> : null}
           </div>
         </header>
+
+        {workOrderError ? <div className="live-data-alert live-data-alert--error"><Icon name="warning" /><span><b>WO live belum bisa dimuat.</b> {workOrderError}</span></div> : null}
+        {isLoadingWorkOrders ? <div className="live-data-alert"><Icon name="clock" /><span>Memuat Work Order dari Supabase…</span></div> : null}
 
         {view === 'dashboard' ? (
           <section className="view-content">
@@ -730,32 +768,25 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
       {modal?.type === 'create' ? <CreateWorkOrderModal
         onClose={() => setModal(null)}
-        onCreate={(data) => {
-          const created: WorkOrder = {
-            id: createId('wo'),
-            code: getNextCode(workOrders),
+        onCreate={async (data) => {
+          const steps = buildSteps(data.template, data.qty, data.customRoute)
+          const created = await createLiveDraftWorkOrder({
             type: data.type,
             source: data.source,
             product: data.product,
             referenceNote: data.referenceNote,
-            referenceImages: data.referenceImages,
             artworkApprovalRequired: data.artworkApprovalRequired,
             qty: data.qty,
             dueDate: data.dueDate,
             priority: data.priority,
-            status: 'draft',
-            reworkCount: 0,
-            createdAt: new Date().toISOString(),
-            createdBy: currentUser.name,
-            routeTemplateId: data.template as NonNullable<WorkOrder['routeTemplateId']>,
+            routeTemplateId: data.template,
             customRoute: data.customRoute,
-            steps: buildSteps(data.template, data.qty, data.customRoute),
-            history: [makeHistory(currentUser, 'WO draft dibuat', `Alur ${routeTemplates.find((template) => template.id === data.template)?.title || 'custom'} dipilih.`)],
-          }
-          setWorkOrders((current) => [created, ...current])
+            steps,
+          })
+          const liveOrders = await reloadWorkOrders()
           setModal(null)
-          setSelectedId(created.id)
-          showToast(`${created.code} dibuat sebagai draft.`)
+          setSelectedId(liveOrders.find((order) => order.id === created.id)?.id || created.id)
+          showToast(`${created.code} dibuat sebagai draft live Supabase.`)
         }}
       /> : null}
 
@@ -1129,7 +1160,7 @@ function readArtworkFile(file: File): Promise<WorkOrderReferenceImage> {
   })
 }
 
-function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCreate: (data: CreateData) => void }) {
+function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCreate: (data: CreateData) => void | Promise<void> }) {
   const [type, setType] = useState<WorkOrderType>('mto')
   const [template, setTemplate] = useState('multi-part')
   const [customRoute, setCustomRoute] = useState<string[]>(['printing', 'cutting', 'lining', 'zipper', 'sewing', 'finishing'])
@@ -1138,6 +1169,7 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
   const [artworkApprovalRequired, setArtworkApprovalRequired] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [isUploading, setIsUploading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const hasPrintingRoute = routeHasPrinting(template, customRoute)
   const toggleCustom = (id: string) => setCustomRoute((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])
@@ -1184,7 +1216,11 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
   return <Modal title="Buat Work Order" subtitle="Draft belum masuk ke lantai produksi. PPIC harus menjadwalkan sebelum proses pertama bisa dimulai." onClose={onClose} wide>
     <form className="form-stack" onSubmit={(event) => {
       event.preventDefault()
-      onCreate({ type, template, customRoute, referenceImages, artworkApprovalRequired: hasPrintingRoute && artworkApprovalRequired, ...form, qty: Number(form.qty) })
+      setUploadError('')
+      setIsSaving(true)
+      void Promise.resolve(onCreate({ type, template, customRoute, referenceImages, artworkApprovalRequired: hasPrintingRoute && artworkApprovalRequired, ...form, qty: Number(form.qty) }))
+        .catch((error) => setUploadError(error instanceof Error ? error.message : 'WO tidak dapat dibuat.'))
+        .finally(() => setIsSaving(false))
     }}>
       <div className="form-section-label">1. Sumber dan produk</div>
       <div className="segmented-control"><button className={type === 'mto' ? 'is-active' : ''} type="button" onClick={() => setType('mto')}>Pesanan customer / MTO</button><button className={type === 'mts' ? 'is-active' : ''} type="button" onClick={() => setType('mts')}>Buat stok / MTS</button></div>
@@ -1218,7 +1254,7 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
       <div className="route-template-grid">{routeTemplates.map((item) => <button type="button" key={item.id} className={`route-template${template === item.id ? ' route-template--active' : ''}`} onClick={() => setTemplate(item.id)}><b>{item.title}</b><span>{item.description}</span></button>)}</div>
       {template === 'custom' ? <div className="custom-route-builder"><div><b>Proses dipilih</b><span>QC akhir dan packing ditambahkan otomatis. Rute yang sudah punya hasil tidak dapat diubah setelah produksi dimulai.</span></div><div className="custom-route-options">{CUSTOM_OPTIONS.map((item) => <button type="button" key={item.id} className={customRoute.includes(item.id) ? 'is-active' : ''} onClick={() => toggleCustom(item.id)}>{customRoute.includes(item.id) ? '✓ ' : '+ '}{item.label}</button>)}</div></div> : null}
       {hasPrintingRoute ? <label className="artwork-confirm__check artwork-control-option"><input type="checkbox" checked={artworkApprovalRequired} onChange={(event) => setArtworkApprovalRequired(event.target.checked)} /><span><b>Wajibkan approval artwork sebelum Printing</b><small>Opsional. Aktifkan hanya untuk motif custom, revisi desain, atau produk yang harus diverifikasi terhadap file final. Jika tidak dicentang, operator tetap bisa mulai cetak tanpa upload atau approval artwork.</small></span></label> : null}
-      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={isUploading}>Buat draft WO</button></footer>
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={isUploading || isSaving}>{isSaving ? 'Menyimpan ke Supabase…' : 'Buat draft WO'}</button></footer>
     </form>
   </Modal>
 }

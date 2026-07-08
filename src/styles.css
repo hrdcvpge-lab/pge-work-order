@@ -645,3 +645,109 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 .live-people-create-form .station-check-grid label > span,
 .person-access-card .station-check-grid label > span { min-width:0; }
 @media (max-width:620px) { .live-people-access-mode { margin-left:0; } .live-people-status-box--modal { min-height:64px; } }
+
+.live-data-alert {
+  align-items: center;
+  background: #fff8df;
+  border: 1px solid #f3d36b;
+  border-radius: 16px;
+  color: #624700;
+  display: flex;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+}
+
+.live-data-alert svg {
+  flex: 0 0 auto;
+  height: 18px;
+  width: 18px;
+}
+
+.live-data-alert--error {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #9f1239;
+}
+
+/* v0.4.0.1 — process card WIP input layout */
+.process-ticket__input-panel {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.15fr) minmax(180px, 1fr) minmax(150px, .8fr);
+  gap: 8px;
+  margin: 10px 13px 0;
+}
+.process-ticket__input-panel > div {
+  min-width: 0;
+  border: 1px solid #ededeb;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fafaf8;
+}
+.process-ticket__input-panel span {
+  display: block;
+  margin-bottom: 5px;
+  color: #858585;
+  text-transform: uppercase;
+  letter-spacing: .075em;
+  font-size: 8px;
+  line-height: 1.2;
+  font-weight: 900;
+}
+.process-ticket__input-panel b {
+  display: block;
+  color: #343434;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.process-ticket__input-panel small {
+  display: block;
+  margin-top: 4px;
+  color: #777;
+  font-size: 9px;
+  line-height: 1.45;
+}
+.process-ticket__input-hero {
+  border-color: #fde68a !important;
+  background: #fffdf3 !important;
+}
+.process-ticket__input-hero b {
+  font-size: 12px;
+}
+.process-ticket__input-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.process-ticket__input-chips em {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: #245a9d;
+  background: #f5f9ff;
+  font-size: 9px;
+  line-height: 1.2;
+  font-style: normal;
+  font-weight: 800;
+}
+.process-ticket__input-chips strong {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 5px;
+  color: #1f2937;
+  background: #fff;
+  font-size: 9px;
+}
+.process-ticket__input-capacity b {
+  font-size: 16px;
+  letter-spacing: -.04em;
+}
+@media (max-width: 920px) {
+  .process-ticket__input-panel {
+    grid-template-columns: 1fr;
+  }
+}
