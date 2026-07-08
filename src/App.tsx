@@ -4,8 +4,9 @@ import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
-import { routeTemplates, staffDirectory as initialStaffDirectory, teamMembers, workAreas } from './data/mockData'
+import { routeTemplates, teamMembers, workAreas } from './data/mockData'
 import { createLiveDraftWorkOrder, fetchLiveWorkOrders } from './lib/liveWorkOrders'
+import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
   artworkApprovalLabels,
@@ -82,11 +83,9 @@ const MACHINE_OPTIONS = [
   'Manual / tidak memakai mesin',
 ]
 
-function getDirectoryName(id: string | undefined, directory: StaffDirectoryMember[] = initialStaffDirectory, fallback = 'Belum ditetapkan') {
+function getDirectoryName(id: string | undefined, directory: StaffDirectoryMember[] = [], fallback = 'Belum ditetapkan') {
   if (!id) return fallback
-  return directory.find((member) => member.id === id)?.name
-    || teamMembers.find((member) => member.id === id)?.name
-    || fallback
+  return directory.find((member) => member.id === id)?.name || fallback
 }
 
 function defaultLocationForStation(station: Station) {
@@ -147,18 +146,10 @@ function canViewWorkOrder(currentUser: TeamMember, workOrder: WorkOrder) {
 }
 
 
-function getCombinedDirectory(directory: StaffDirectoryMember[], team: TeamMember[]) {
-  const teamRows: StaffDirectoryMember[] = team
-    .filter((member) => !directory.some((row) => row.id === member.id))
-    .map((member) => ({
-      id: member.id,
-      name: member.name,
-      kind: member.role === 'admin' || member.role === 'ppic' || member.role === 'manager' ? 'planner' : 'staff',
-      isActive: true,
-      allowedStations: member.stations,
-      canReceiveEscalation: ['admin', 'ppic', 'manager'].includes(member.role),
-    }))
-  return [...directory, ...teamRows]
+function getCombinedDirectory(directory: StaffDirectoryMember[], _team: TeamMember[] = []) {
+  // Planning dropdowns must use the live Employee Master only.
+  // Mock Team PGE rows are intentionally not mixed in here.
+  return directory
 }
 
 function getEligibleAssignees(station: Station, directory: StaffDirectoryMember[], team: TeamMember[]) {
@@ -355,7 +346,8 @@ type AppProps = {
 
 export default function App({ currentUser, onSignOut }: AppProps) {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
-  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryMember[]>(initialStaffDirectory)
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryMember[]>([])
+  const [staffDirectoryError, setStaffDirectoryError] = useState('')
   const [view, setView] = useState<View>('dashboard')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
@@ -374,6 +366,20 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     [currentUser],
   )
   const selectedWorkOrder = workOrders.find((order) => order.id === selectedId) || null
+
+  const reloadStaffDirectory = async () => {
+    setStaffDirectoryError('')
+    try {
+      const liveDirectory = await fetchLiveStaffDirectory()
+      setStaffDirectory(liveDirectory)
+      return liveDirectory
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Daftar PIC tidak dapat dimuat.'
+      setStaffDirectory([])
+      setStaffDirectoryError(message)
+      return []
+    }
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 1_000)
@@ -405,6 +411,16 @@ export default function App({ currentUser, onSignOut }: AppProps) {
       cancelled = true
     }
   }, [currentUser.id])
+
+  useEffect(() => {
+    void reloadStaffDirectory()
+  }, [currentUser.id])
+
+  useEffect(() => {
+    if (modal?.type === 'schedule' || modal?.type === 'assign') {
+      void reloadStaffDirectory()
+    }
+  }, [modal?.type, currentUser.id])
 
   const reloadWorkOrders = async () => {
     const liveOrders = await fetchLiveWorkOrders()
@@ -562,7 +578,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         <span className="queue-row__copy">
           <b>{step.name} <small>· {order.code}</small></b>
           <span>{order.product}</span>
-          <em>{getDirectoryName(step.assignedUserId, staffDirectory, 'PIC belum ditentukan')} · {step.reportToUserId ? `Lapor ke ${getDirectoryName(step.reportToUserId)}` : 'Lapor ke belum ditentukan'} · Target {formatNumber(step.plannedQty)}</em>
+          <em>{getDirectoryName(step.assignedUserId, staffDirectory, 'PIC belum ditentukan')} · {step.reportToUserId ? `Lapor ke ${getDirectoryName(step.reportToUserId, staffDirectory)}` : 'Lapor ke belum ditentukan'} · Target {formatNumber(step.plannedQty)}</em>
         </span>
         <span className="queue-row__right"><Badge kind="station" value={step.station} /><Badge kind="priority" value={order.priority} /><Badge kind="process" value={stepStatus} /></span>
       </button>
@@ -614,6 +630,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         </header>
 
         {workOrderError ? <div className="live-data-alert live-data-alert--error"><Icon name="warning" /><span><b>WO live belum bisa dimuat.</b> {workOrderError}</span></div> : null}
+        {staffDirectoryError ? <div className="live-data-alert live-data-alert--warning"><Icon name="warning" /><span><b>Daftar PIC live belum bisa dimuat.</b> {staffDirectoryError}</span></div> : null}
         {isLoadingWorkOrders ? <div className="live-data-alert"><Icon name="clock" /><span>Memuat Work Order dari Supabase…</span></div> : null}
 
         {view === 'dashboard' ? (
@@ -1401,6 +1418,11 @@ function ConfirmArtworkModal({ workOrder, step, onClose, onConfirm }: { workOrde
   </Modal>
 }
 
+function getDefaultReportToUserId(directory: StaffDirectoryMember[], team: TeamMember[] = []) {
+  const receivers = getEscalationReceivers(directory, team)
+  return receivers.find((member) => member.name.toLowerCase().includes('ppic'))?.id || receivers[0]?.id || ''
+}
+
 function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, onSave }: {
   workOrder: WorkOrder
   staffDirectory: StaffDirectoryMember[]
@@ -1412,7 +1434,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
   const [scheduledDate, setScheduledDate] = useState(workOrder.scheduledDate || new Date().toISOString().slice(0, 10))
   const [plannedSteps, setPlannedSteps] = useState<ProcessStep[]>(() => workOrder.steps.map((step) => ({
     ...step,
-    reportToUserId: step.reportToUserId || 'u-ppic',
+    reportToUserId: step.reportToUserId || getDefaultReportToUserId(directory, team),
     location: step.location || defaultLocationForStation(step.station),
   })))
   const [error, setError] = useState('')
@@ -1466,7 +1488,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
 
 function AssignProcessModal({ workOrder, step, staffDirectory: directory, team, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; staffDirectory: StaffDirectoryMember[]; team: TeamMember[]; onClose: () => void; onSave: (data: { assignedUserId: string; reportToUserId: string; location: string }) => void }) {
   const [assignedUserId, setAssignedUserId] = useState(step.assignedUserId || '')
-  const [reportToUserId, setReportToUserId] = useState(step.reportToUserId || 'u-ppic')
+  const [reportToUserId, setReportToUserId] = useState(step.reportToUserId || getDefaultReportToUserId(directory, team))
   const [location, setLocation] = useState(step.location || defaultLocationForStation(step.station))
   return <Modal title="Atur PIC & jalur laporan" subtitle="Gunakan daftar Team PGE agar penugasan konsisten. Perubahan ini hanya boleh sebelum proses mempunyai hasil atau timer." onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ assignedUserId, reportToUserId, location }) }}>
@@ -1701,7 +1723,7 @@ function PeopleStationView({ directory, team, onChange }: { directory: StaffDire
   }
   return <section className="view-content people-station-view">
     <article className="surface-card people-station-intro"><header className="surface-card__header"><div><p className="eyebrow">Konfigurasi Admin</p><h2>People & Station Access</h2><span>Atur stasiun yang boleh dikerjakan setiap anggota. PIC dropdown di perencanaan WO hanya menampilkan anggota yang aktif dan eligible untuk stasiun tersebut.</span></div><Badge kind="plain" value={`${rows.length} anggota`} /></header><div className="callout"><Icon name="warning" /><span><b>Kontrol akses frontend:</b> ini membatasi pilihan PIC dan tampilan tugas demo. Saat Supabase dipasang, aturan yang sama harus dipindahkan ke tabel user_stations dan Row Level Security.</span></div>{notice ? <p className="success-note">{notice}</p> : null}</article>
-    <article className="surface-card"><div className="filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau nomor karyawan" /></label></div><div className="people-grid">{rows.map((member) => <article className={`person-access-card${member.isActive === false ? ' person-access-card--inactive' : ''}`} key={member.id}><header><div><b>{member.name}</b><small>{member.employeeNumber || 'Tanpa nomor karyawan'}</small></div><label className="switch-field"><input type="checkbox" checked={member.isActive !== false} onChange={(event) => update(member.id, { isActive: event.target.checked })} /><span>Aktif</span></label></header><section><span className="people-label">Stasiun yang diperbolehkan</span><div className="station-check-grid">{Object.entries(stationLabels).map(([station, label]) => { const code = station as Station; const checked = member.allowedStations?.includes(code) || false; return <label key={station}><input type="checkbox" checked={checked} onChange={(event) => update(member.id, { allowedStations: event.target.checked ? [...new Set([...(member.allowedStations || []), code])] : (member.allowedStations || []).filter((item) => item !== code) })} />{label}</label> })}</div></section><section className="form-grid"><label><span>Default lapor ke</span><select value={member.defaultReportToUserId || 'u-ppic'} onChange={(event) => update(member.id, { defaultReportToUserId: event.target.value })}>{planners.map((planner) => <option key={planner.id} value={planner.id}>{planner.name}</option>)}</select></label><label><span>Default area</span><select value={member.defaultWorkArea || ''} onChange={(event) => update(member.id, { defaultWorkArea: event.target.value })}><option value="">Pilih saat perencanaan</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label></section><label className="switch-field switch-field--line"><input type="checkbox" checked={member.canReceiveEscalation || false} onChange={(event) => update(member.id, { canReceiveEscalation: event.target.checked })} /><span>Boleh menjadi penerima laporan / eskalasi</span></label></article>)}</div></article>
+    <article className="surface-card"><div className="filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau nomor karyawan" /></label></div><div className="people-grid">{rows.map((member) => <article className={`person-access-card${member.isActive === false ? ' person-access-card--inactive' : ''}`} key={member.id}><header><div><b>{member.name}</b><small>{member.employeeNumber || 'Tanpa nomor karyawan'}</small></div><label className="switch-field"><input type="checkbox" checked={member.isActive !== false} onChange={(event) => update(member.id, { isActive: event.target.checked })} /><span>Aktif</span></label></header><section><span className="people-label">Stasiun yang diperbolehkan</span><div className="station-check-grid">{Object.entries(stationLabels).map(([station, label]) => { const code = station as Station; const checked = member.allowedStations?.includes(code) || false; return <label key={station}><input type="checkbox" checked={checked} onChange={(event) => update(member.id, { allowedStations: event.target.checked ? [...new Set([...(member.allowedStations || []), code])] : (member.allowedStations || []).filter((item) => item !== code) })} />{label}</label> })}</div></section><section className="form-grid"><label><span>Default lapor ke</span><select value={member.defaultReportToUserId || ''} onChange={(event) => update(member.id, { defaultReportToUserId: event.target.value })}>{planners.map((planner) => <option key={planner.id} value={planner.id}>{planner.name}</option>)}</select></label><label><span>Default area</span><select value={member.defaultWorkArea || ''} onChange={(event) => update(member.id, { defaultWorkArea: event.target.value })}><option value="">Pilih saat perencanaan</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label></section><label className="switch-field switch-field--line"><input type="checkbox" checked={member.canReceiveEscalation || false} onChange={(event) => update(member.id, { canReceiveEscalation: event.target.checked })} /><span>Boleh menjadi penerima laporan / eskalasi</span></label></article>)}</div></article>
   </section>
 }
 
