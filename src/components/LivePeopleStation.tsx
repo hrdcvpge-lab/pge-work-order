@@ -43,7 +43,6 @@ type ReportingLine = {
 
 type CreateEmployeePayload = {
   fullName: string
-  employeeCode: string
   phone: string
   role: AppRole
   accessMode: EmployeeAccessMode
@@ -389,11 +388,12 @@ export function LivePeopleStation() {
         stations={stations}
         planners={planners}
         onClose={() => setShowCreate(false)}
-        onCreated={async (fullName, accessMode) => {
+        onCreated={async (fullName, accessMode, employeeCode) => {
           setShowCreate(false)
+          const codeCopy = employeeCode ? ` (${employeeCode})` : ''
           setNotice(accessMode === 'self_service'
-            ? `Data dan akun login ${fullName} dibuat dengan PIN awal 00000000.`
-            : `Data ${fullName} dibuat tanpa akun login. Progress akan ditangani sesuai mode akses yang dipilih.`)
+            ? `Data dan akun login ${fullName}${codeCopy} dibuat dengan PIN awal 00000000.`
+            : `Data ${fullName}${codeCopy} dibuat tanpa akun login. Progress akan ditangani sesuai mode akses yang dipilih.`)
           await load()
         }}
       /> : null}
@@ -405,11 +405,10 @@ function CreateEmployeeModal({ stations, planners, onClose, onCreated }: {
   stations: Station[]
   planners: Employee[]
   onClose: () => void
-  onCreated: (fullName: string, accessMode: EmployeeAccessMode) => Promise<void>
+  onCreated: (fullName: string, accessMode: EmployeeAccessMode, employeeCode: string) => Promise<void>
 }) {
   const [form, setForm] = useState<CreateEmployeePayload>({
     fullName: '',
-    employeeCode: '',
     phone: '',
     role: 'operator',
     accessMode: 'self_service',
@@ -445,8 +444,8 @@ function CreateEmployeeModal({ stations, planners, onClose, onCreated }: {
       return
     }
 
-    if (!form.fullName.trim() || !form.employeeCode.trim()) {
-      setError('Nama lengkap dan kode karyawan wajib diisi.')
+    if (!form.fullName.trim()) {
+      setError('Nama lengkap wajib diisi.')
       return
     }
 
@@ -463,11 +462,10 @@ function CreateEmployeeModal({ stations, planners, onClose, onCreated }: {
     setSaving(true)
     setError('')
 
-    const { error: invokeError } = await client.functions.invoke('admin-create-employee', {
+    const { data, error: invokeError } = await client.functions.invoke<{ employee?: { employeeCode?: string } }>('admin-create-employee', {
       body: {
         ...form,
         fullName: form.fullName.trim(),
-        employeeCode: form.employeeCode.trim().toUpperCase(),
         phone: phone || '',
       },
     })
@@ -478,18 +476,22 @@ function CreateEmployeeModal({ stations, planners, onClose, onCreated }: {
       return
     }
 
-    await onCreated(form.fullName.trim(), form.accessMode)
+    await onCreated(form.fullName.trim(), form.accessMode, data?.employee?.employeeCode || '')
     setSaving(false)
   }
 
   const accountRequired = form.accessMode === 'self_service'
   const modeCopy = ACCESS_MODE_COPY[form.accessMode]
 
-  return <Modal title="Tambah karyawan" subtitle="Buat data pekerja lebih dulu. Akun login hanya diperlukan untuk orang yang memakai aplikasi." onClose={onClose} wide>
+  return <Modal title="Tambah karyawan" subtitle="Buat data pekerja lebih dulu. Kode karyawan dibuat otomatis oleh sistem." onClose={onClose} wide>
     <form className="form-stack live-people-create-form" onSubmit={submit}>
       <div className="form-grid">
         <label><span>Nama lengkap *</span><input value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} placeholder="Contoh: Bagus Pratama" required /></label>
-        <label><span>Kode karyawan *</span><input value={form.employeeCode} onChange={(event) => setForm({ ...form, employeeCode: event.target.value.toUpperCase() })} placeholder="Contoh: PGE-003" required /></label>
+        <div className="live-people-status-box live-people-status-box--modal">
+          <span>Kode karyawan</span>
+          <b>Otomatis</b>
+          <small>Sistem memakai nomor berikutnya, misalnya PGE-003.</small>
+        </div>
         <label><span>Peran kerja *</span><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as AppRole })}>{ROLE_ORDER.map((role) => <option value={role} key={role}>{ROLE_LABELS[role]}</option>)}</select></label>
         <label><span>Mode akses *</span><select value={form.accessMode} onChange={(event) => setForm({ ...form, accessMode: event.target.value as EmployeeAccessMode })}>{(Object.keys(ACCESS_MODE_COPY) as EmployeeAccessMode[]).map((mode) => <option value={mode} key={mode}>{ACCESS_MODE_COPY[mode].label}</option>)}</select></label>
       </div>
