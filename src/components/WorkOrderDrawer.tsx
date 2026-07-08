@@ -220,7 +220,7 @@ export function WorkOrderDrawer({
         </section>
 
         <section className="drawer-section">
-          <div className="section-heading"><div><p className="eyebrow">Alur proses</p><h3>Rute, WIP, dan pemilik langkah</h3></div><span>{workOrder.steps.length} proses</span></div>
+          <div className="section-heading"><div><p className="eyebrow">Alur proses</p><h3>Rute, input proses, dan pemilik langkah</h3></div><span>{workOrder.steps.length} proses</span></div>
           <div className="route-flow">
             {workOrder.steps.map((step, index) => {
               const stepStatus = deriveStepStatus(workOrder, step)
@@ -251,9 +251,9 @@ export function WorkOrderDrawer({
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
                 <div className="process-ticket__input-panel">
                   <div className="process-ticket__input-hero">
-                    <span>Input WIP</span>
+                    <span>Input proses</span>
                     <b>{step.inputs.length ? 'Perlu input proses' : 'Mulai langsung'}</b>
-                    <small>{step.inputs.length ? `${step.inputs.length} sumber input dibutuhkan` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small>
+                    <small>{step.inputs.length ? `${step.inputs.length} sumber input dibutuhkan` : 'Tidak menunggu hasil proses sebelumnya.'}</small>
                   </div>
                   <div className="process-ticket__input-chips">
                     <span>Detail input</span>
