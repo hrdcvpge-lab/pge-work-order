@@ -769,3 +769,118 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
   flex: 0 0 auto;
   margin-top: 1px;
 }
+
+
+/* v0.4.4.1 — assisted progress UI repair */
+.process-ticket__input-panel {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(210px, 1.25fr) minmax(150px, .8fr);
+  gap: 8px;
+  margin: 10px 13px 0;
+  align-items: stretch;
+}
+.process-ticket__input-panel > div {
+  min-width: 0;
+  border: 1px solid #ededeb;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+}
+.process-ticket__input-panel span {
+  display: block;
+  color: #8a8a84;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 8px;
+  font-weight: 900;
+}
+.process-ticket__input-hero b,
+.process-ticket__input-capacity b {
+  display: block;
+  margin-top: 4px;
+  color: #242424;
+  font-size: 14px;
+  line-height: 1.2;
+}
+.process-ticket__input-panel small {
+  display: block;
+  margin-top: 4px;
+  color: #777;
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+.process-ticket__input-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+}
+.process-ticket__input-chips > span {
+  flex-basis: 100%;
+}
+.process-ticket__input-chips em {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #245a9d;
+  background: #f5f9ff;
+  font-size: 9.5px;
+  line-height: 1.2;
+  font-style: normal;
+  font-weight: 800;
+}
+.process-ticket__input-chips strong {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 5px;
+  color: #1f2937;
+  background: #fff;
+  font-size: 9px;
+}
+.assisted-progress-box {
+  margin: 10px 13px 0;
+  min-height: 0;
+}
+.assisted-progress-box svg {
+  width: 18px;
+  height: 18px;
+  max-width: 18px;
+  max-height: 18px;
+}
+.start-process-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.start-process-summary > div {
+  min-width: 0;
+  border: 1px solid #ecece7;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fafaf8;
+}
+.start-process-summary span {
+  display: block;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 8px;
+  font-weight: 900;
+}
+.start-process-summary b {
+  display: block;
+  margin-top: 5px;
+  color: #242424;
+  font-size: 12px;
+  line-height: 1.25;
+}
+@media (max-width: 920px) {
+  .process-ticket__input-panel,
+  .start-process-summary {
+    grid-template-columns: 1fr;
+  }
+}

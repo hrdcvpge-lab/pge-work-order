@@ -43,6 +43,7 @@ type ModalState =
   | { type: 'create' }
   | { type: 'schedule'; workOrder: WorkOrder }
   | { type: 'assign'; workOrder: WorkOrder; step: ProcessStep }
+  | { type: 'confirm-start'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'log-result'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'hold'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'qc'; workOrder: WorkOrder; step: ProcessStep }
@@ -737,7 +738,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                   {isPrinting && order.artworkApprovalRequired && !finalArtwork ? <div className="station-artwork-blocked"><Icon name="warning" /><div><b>Printing diblokir</b><span>{artworkReadiness.reason}</span></div></div> : null}
                   <div className="station-task-card__details"><span>Target <b>{formatNumber(step.plannedQty)}</b></span><span>Hasil baik <b>{formatNumber(step.qtyGood)}</b></span><span>WIP input <b>{Number.isFinite(getAvailableInputCap(order, step)) ? formatNumber(getAvailableInputCap(order, step)) : '—'}</b></span><span>Timer <b>{formatDuration(getOrderActiveSeconds({ ...order, steps: [step] }, clock))}</b></span></div>
                   {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
-                  <footer><button className="button button--secondary" onClick={() => openOrder(order)}>Lihat WO</button>{operationAllowed && status === 'ready' ? <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => startStep(order, step)}><Icon name="play" /> {isPrinting ? (order.artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai'}</button> : null}{operationAllowed && status === 'in_progress' ? <><button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button>{step.station === 'qc' ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button> : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>}</> : null}{operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}{operationAllowed && status === 'hold' ? <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan</button> : null}</footer>
+                  <footer><button className="button button--secondary" onClick={() => openOrder(order)}>Lihat WO</button>{operationAllowed && status === 'ready' ? <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => setModal({ type: 'confirm-start', workOrder: order, step })}><Icon name="play" /> {isPrinting ? (order.artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai'}</button> : null}{operationAllowed && status === 'in_progress' ? <><button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button>{step.station === 'qc' ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button> : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>}</> : null}{operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}{operationAllowed && status === 'hold' ? <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan</button> : null}</footer>
                 </article>
               }) : <div className="empty-state empty-state--large">Tidak ada proses yang ditugaskan kepada akun ini. Admin atau PPIC perlu menetapkan Anda sebagai PIC pada proses WO.</div>}
             </div>
@@ -778,7 +779,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         onClose={() => setSelectedId(null)}
         onSchedule={() => setModal({ type: 'schedule', workOrder: selectedWorkOrder })}
         onAssign={(step) => setModal({ type: 'assign', workOrder: selectedWorkOrder, step })}
-        onStart={(step) => startStep(selectedWorkOrder, step)}
+        onStart={(step) => setModal({ type: 'confirm-start', workOrder: selectedWorkOrder, step })}
         onPause={(step) => pauseStep(selectedWorkOrder, step)}
         onLogResult={(step) => setModal({ type: 'log-result', workOrder: selectedWorkOrder, step })}
         onHold={(step) => setModal({ type: 'hold', workOrder: selectedWorkOrder, step })}
@@ -852,6 +853,18 @@ export default function App({ currentUser, onSignOut }: AppProps) {
           updated.history = [makeHistory(currentUser, `PIC & jalur laporan ditetapkan · ${modal.step.name}`, `PIC ${getDirectoryName(data.assignedUserId, staffDirectory)} · Lapor ke ${getDirectoryName(data.reportToUserId, staffDirectory)} · Area ${data.location || 'belum diisi'}.`), ...modal.workOrder.history]
           applyOrderUpdate(updated, 'PIC, lapor ke, dan lokasi proses diperbarui.')
           setModal(null)
+        }}
+      /> : null}
+
+      {modal?.type === 'confirm-start' ? <StartProcessModal
+        workOrder={modal.workOrder}
+        step={modal.step}
+        currentUser={currentUser}
+        staffDirectory={staffDirectory}
+        onClose={() => setModal(null)}
+        onConfirm={() => {
+          setModal(null)
+          startStep(modal.workOrder, modal.step)
         }}
       /> : null}
 
@@ -1505,6 +1518,33 @@ function AssignProcessModal({ workOrder, step, staffDirectory: directory, team, 
       <label><span>Area kerja / laporan hasil</span><select required value={location} onChange={(event) => setLocation(event.target.value)}><option value="">Pilih area</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Simpan penugasan</button></footer>
     </form>
+  </Modal>
+}
+
+
+function StartProcessModal({ workOrder, step, currentUser, staffDirectory, onClose, onConfirm }: {
+  workOrder: WorkOrder
+  step: ProcessStep
+  currentUser: TeamMember
+  staffDirectory: StaffDirectoryMember[]
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const performer = staffDirectory.find((member) => member.id === step.assignedUserId)
+  const performerName = performer?.name || 'PIC belum ditetapkan'
+  const isAssisted = performer?.accessMode === 'admin_assisted'
+
+  return <Modal title={isAssisted ? 'Mulai proses atas nama PIC' : 'Mulai proses'} subtitle="Timer proses akan mulai berjalan setelah dikonfirmasi." onClose={onClose}>
+    <div className="form-stack start-process-modal">
+      <div className="callout"><Icon name="station" /><span><b>{workOrder.code}</b> · {step.name} · {stationLabels[step.station]}</span></div>
+      <div className="start-process-summary">
+        <div><span>PIC aktual</span><b>{performerName}</b></div>
+        <div><span>Dicatat oleh</span><b>{currentUser.name}</b></div>
+        <div><span>Area kerja</span><b>{step.location || 'Belum ditetapkan'}</b></div>
+      </div>
+      {isAssisted ? <div className="callout callout--warning"><Icon name="user" /><span><b>Mode update dibantu Admin/PPIC.</b> Pelaksana kerja tetap {performerName}; akun yang login hanya mencatat progress dan timer.</span></div> : null}
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="button" className="button button--primary" onClick={onConfirm}><Icon name="play" /> Mulai proses</button></footer>
+    </div>
   </Modal>
 }
 
