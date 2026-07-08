@@ -5,7 +5,7 @@ import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
-import { createLiveDraftWorkOrder, fetchLiveWorkOrders } from './lib/liveWorkOrders'
+import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
@@ -560,14 +560,23 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     setModal(null)
   }
 
-  const cancelOrder = (order: WorkOrder) => {
-    const updated: WorkOrder = {
-      ...order,
-      status: 'cancelled',
-      history: [makeHistory(currentUser, 'WO dibatalkan', 'Draft dibatalkan sebelum masuk jadwal produksi.'), ...order.history],
+  const cancelOrder = async (order: WorkOrder) => {
+    if (deriveOrderStatus(order) !== 'draft') {
+      showToast('Hanya WO berstatus Draft yang bisa dihapus dari daftar.')
+      setModal(null)
+      return
     }
-    applyOrderUpdate(updated, 'Draft dibatalkan.')
-    setModal(null)
+
+    try {
+      await deleteLiveDraftWorkOrder(order.id)
+      setSelectedId(null)
+      await reloadWorkOrders()
+      showToast(`${order.code} dihapus dari Draft.`)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Draft WO tidak dapat dibatalkan.')
+    } finally {
+      setModal(null)
+    }
   }
 
   const renderTaskRow = (order: WorkOrder, step: ProcessStep, index?: number) => {
@@ -1727,6 +1736,17 @@ function PeopleStationView({ directory, team, onChange }: { directory: StaffDire
   </section>
 }
 
-function ConfirmModal({ title, description, confirmLabel, danger = false, onClose, onConfirm }: { title: string; description: string; confirmLabel: string; danger?: boolean; onClose: () => void; onConfirm: () => void }) {
-  return <Modal title={title} onClose={onClose}><div className="form-stack"><p className="confirm-copy">{description}</p><footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="button" className={`button ${danger ? 'button--danger' : 'button--primary'}`} onClick={onConfirm}>{confirmLabel}</button></footer></div></Modal>
+function ConfirmModal({ title, description, confirmLabel, danger = false, onClose, onConfirm }: { title: string; description: string; confirmLabel: string; danger?: boolean; onClose: () => void; onConfirm: () => void | Promise<void> }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const confirm = async () => {
+    setIsSubmitting(true)
+    try {
+      await onConfirm()
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return <Modal title={title} onClose={onClose}><div className="form-stack"><p className="confirm-copy">{description}</p><footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose} disabled={isSubmitting}>Batal</button><button type="button" className={`button ${danger ? 'button--danger' : 'button--primary'}`} onClick={() => void confirm()} disabled={isSubmitting}>{isSubmitting ? 'Memproses…' : confirmLabel}</button></footer></div></Modal>
 }
