@@ -5,7 +5,7 @@ import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
-import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, scheduleLiveWorkOrder } from './lib/liveWorkOrders'
+import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveWorkOrderStepOutput, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
@@ -493,35 +493,34 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     setSelectedId(order.id)
   }
 
-  const beginStep = (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
+  const beginStep = async (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
     const status = deriveStepStatus(order, step)
     if (status !== 'ready') return showToast('Proses belum siap. Periksa WIP atau HOLD terlebih dahulu.')
-    const now = new Date().toISOString()
-    const updated = updateStep(order, step.id, {
-      status: 'in_progress',
-      startedAt: now,
-      ...(artworkImageId ? {
-        artworkConfirmedBy: currentUser.name,
-        artworkConfirmedAt: now,
-        artworkConfirmedImageId: artworkImageId,
-      } : {}),
-    })
-    updated.history = [
-      ...(artworkImageId ? [makeHistory(currentUser, 'Artwork diverifikasi sebelum cetak', `FINAL PRINT FILE sudah dibuka dan dikonfirmasi sebelum ${step.name} dimulai.`)] : []),
-      makeHistory(currentUser, `Mulai proses · ${step.name}`, `Timer mulai di ${step.location || stationLabels[step.station]}.`),
-      ...order.history,
-    ]
-    applyOrderUpdate(updated, artworkImageId ? 'Artwork dikonfirmasi. Timer Printing dimulai.' : 'Timer proses dimulai.')
+
+    try {
+      await startLiveWorkOrderStep({ stepId: step.id })
+      const liveOrders = await reloadWorkOrders()
+      setSelectedId(liveOrders.find((liveOrder) => liveOrder.id === order.id)?.id || order.id)
+      showToast(artworkImageId ? 'Artwork dikonfirmasi. Timer proses dimulai di Supabase.' : 'Timer proses dimulai di Supabase.')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Proses tidak dapat dimulai.')
+    }
   }
 
   const startStep = (order: WorkOrder, step: ProcessStep) => {
-    if (step.station !== 'printing') return beginStep(order, step)
+    if (step.station !== 'printing') {
+      void beginStep(order, step)
+      return
+    }
 
     const readiness = getArtworkReadiness(order)
     if (!readiness.ready) return showToast(`Printing diblokir. ${readiness.reason}`)
 
     // Only WOs explicitly marked as artwork-controlled require a final-file review.
-    if (!order.artworkApprovalRequired) return beginStep(order, step)
+    if (!order.artworkApprovalRequired) {
+      void beginStep(order, step)
+      return
+    }
 
     setModal({ type: 'confirm-artwork', workOrder: order, step })
   }
@@ -613,7 +612,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
         <div className="sidebar__note">
           <b>Fase frontend</b>
-          <span>Login, employee master, dan draft WO sudah tersambung Supabase. Scheduling/progress akan disambungkan bertahap.</span>
+          <span>Login, employee master, draft WO, deploy, dan progress utama sudah tersambung Supabase.</span>
         </div>
       </aside>
 
@@ -626,7 +625,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               ? 'Prioritaskan pesanan customer, lihat langkah yang benar-benar siap, dan tindak blocker sebelum pekerjaan hilang di tengah proses.'
               : view === 'station'
                 ? 'Tampilan mobile-first untuk pekerjaan yang memang ditugaskan kepada pengguna aktif.'
-                : 'Login memakai akun Supabase. Data Work Order di layar ini masih demo sampai rilis koneksi data produksi berikutnya.'}</p>
+                : 'Login memakai akun Supabase. Draft, jadwal, dan progress utama sudah tersambung ke data produksi.'}</p>
           </div>
           <div className="topbar__actions">
             <div className="user-switcher user-switcher--authenticated">
@@ -859,50 +858,31 @@ export default function App({ currentUser, onSignOut }: AppProps) {
       {modal?.type === 'log-result' ? <LogResultModal
         workOrder={modal.workOrder}
         step={modal.step}
+        performerName={getDirectoryName(modal.step.assignedUserId, staffDirectory)}
+        recordedByName={currentUser.name}
         onClose={() => setModal(null)}
-        onSave={(data) => {
+        onSave={async (data) => {
           const total = data.good + data.rework + data.reject
           const cap = Math.min(modal.step.plannedQty - getStepRecordedQty(modal.step), getAvailableInputCap(modal.workOrder, modal.step))
           if (total <= 0) return showToast('Isi minimal satu hasil proses.')
           if (total > cap) return showToast(`Total hasil tidak boleh melebihi ${formatNumber(cap)} unit.`)
-          const elapsed = modal.step.startedAt ? Math.max(0, Math.floor((Date.now() - new Date(modal.step.startedAt).getTime()) / 1_000)) : 0
-          const patchedStep: ProcessStep = {
-            ...modal.step,
-            qtyGood: modal.step.qtyGood + data.good,
-            qtyRework: modal.step.qtyRework + data.rework,
-            qtyReject: modal.step.qtyReject + data.reject,
-            activeSeconds: modal.step.activeSeconds + elapsed,
-            startedAt: undefined,
-            status: getStepRecordedQty({ ...modal.step, qtyGood: modal.step.qtyGood + data.good, qtyRework: modal.step.qtyRework + data.rework, qtyReject: modal.step.qtyReject + data.reject }) >= modal.step.plannedQty ? 'completed' : 'ready',
-            location: data.location || modal.step.location,
-          }
-          let updated: WorkOrder = {
-            ...modal.workOrder,
-            steps: modal.workOrder.steps.map((step) => step.id === patchedStep.id ? patchedStep : step),
-            history: [makeHistory(currentUser, `Hasil dicatat · ${modal.step.name}`, `Baik ${data.good}, rework ${data.rework}, reject ${data.reject}. ${data.note || ''}`), ...modal.workOrder.history],
-          }
 
-          if (data.rework > 0) {
-            const reworkStep = makeReworkStep(patchedStep, data.rework, patchedStep.output)
-            updated = {
-              ...updated,
-              steps: insertAfterStep(updated.steps, patchedStep.id, [reworkStep]),
-              reworkCount: updated.reworkCount + 1,
-              history: [makeHistory(currentUser, `Tiket perbaikan dibuat · ${modal.step.name}`, `${data.rework} unit perlu perbaikan sebelum diteruskan ke proses berikutnya.`), ...updated.history],
-            }
+          try {
+            await recordLiveWorkOrderStepOutput({
+              stepId: modal.step.id,
+              good: data.good,
+              rework: data.rework,
+              reject: data.reject,
+              location: data.location || modal.step.location || '',
+              note: data.note,
+            })
+            const liveOrders = await reloadWorkOrders()
+            setSelectedId(liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)?.id || modal.workOrder.id)
+            showToast(data.reject > 0 ? 'Hasil tersimpan. Reject tercatat dan akan masuk kontrol kekurangan berikutnya.' : 'Hasil proses tersimpan di Supabase.')
+            setModal(null)
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : 'Hasil proses tidak dapat disimpan.')
           }
-
-          if (data.reject > 0) {
-            const shortfall = makeShortfall(patchedStep, data.reject, 'process_reject', data.note)
-            updated = {
-              ...updated,
-              shortfalls: [shortfall, ...(updated.shortfalls || [])],
-              history: [makeHistory(currentUser, `Kekurangan terdeteksi · ${patchedStep.name}`, `${data.reject} unit reject. Admin / PPIC harus memilih penggantian, kirim kurang, atau sisa dibatalkan.`), ...updated.history],
-            }
-          }
-
-          applyOrderUpdate(updated, data.reject > 0 ? 'Hasil disimpan. Reject membuat kekurangan yang perlu keputusan Admin / PPIC.' : 'Hasil proses tersimpan. Timer otomatis dijeda.')
-          setModal(null)
         }}
       /> : null}
 
@@ -1108,7 +1088,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         step={modal.step}
         onClose={() => setModal(null)}
         onConfirm={(imageId) => {
-          beginStep(modal.workOrder, modal.step, imageId)
+          void beginStep(modal.workOrder, modal.step, imageId)
           setModal(null)
         }}
       /> : null}
@@ -1528,13 +1508,14 @@ function AssignProcessModal({ workOrder, step, staffDirectory: directory, team, 
   </Modal>
 }
 
-function LogResultModal({ workOrder, step, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; onClose: () => void; onSave: (data: { good: number; rework: number; reject: number; location: string; note: string }) => void }) {
+function LogResultModal({ workOrder, step, performerName, recordedByName, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; performerName: string; recordedByName: string; onClose: () => void; onSave: (data: { good: number; rework: number; reject: number; location: string; note: string }) => void }) {
   const cap = Math.min(step.plannedQty - getStepRecordedQty(step), getAvailableInputCap(workOrder, step))
   const [data, setData] = useState({ good: 0, rework: 0, reject: 0, location: step.location || '', note: '' })
   const total = data.good + data.rework + data.reject
   return <Modal title="Catat hasil proses" subtitle="Timer akan otomatis dijeda ketika hasil dicatat. Total hasil tidak boleh melebihi target yang masih tersedia." onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave(data) }}>
       <div className="result-summary"><div><span>Batas dapat dicatat</span><b>{formatNumber(cap)}</b></div><div><span>Draft sekarang</span><b className={total > cap ? 'text-danger' : ''}>{formatNumber(total)}</b></div><div><span>Sisa target</span><b>{formatNumber(Math.max(0, cap - total))}</b></div></div>
+      <div className="assisted-progress-box"><Icon name="user" /><span><b>Pelaksana aktual:</b> {performerName}. <b>Dicatat oleh:</b> {recordedByName}.</span></div>
       <div className="form-grid"><label><span>Hasil baik</span><input min="0" type="number" value={data.good} onChange={(event) => setData({ ...data, good: Number(event.target.value) })} /></label><label><span>Perlu rework</span><input min="0" type="number" value={data.rework} onChange={(event) => setData({ ...data, rework: Number(event.target.value) })} /></label><label><span>Reject</span><input min="0" type="number" value={data.reject} onChange={(event) => setData({ ...data, reject: Number(event.target.value) })} /></label><label><span>Lokasi hasil WIP</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder="Rak WIP / area berikutnya" /></label></div>
       <label><span>Catatan hasil</span><textarea required value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder="Contoh: 50 panel baik masuk Rak WIP Jahit; 2 potongan miring." /></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={total <= 0 || total > cap}>Simpan hasil</button></footer>
