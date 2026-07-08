@@ -670,7 +670,7 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
   color: #9f1239;
 }
 
-/* v0.4.0.1 — process card WIP input layout */
+/* v0.4.0.1 — process card Input proses layout */
 .process-ticket__input-panel {
   display: grid;
   grid-template-columns: minmax(170px, 1.15fr) minmax(180px, 1fr) minmax(150px, .8fr);
@@ -881,6 +881,70 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 @media (max-width: 920px) {
   .process-ticket__input-panel,
   .start-process-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.wo-finished-modal {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  border-radius: 22px;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.wo-finished-modal__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: rgba(34, 197, 94, 0.16);
+  color: #16a34a;
+}
+
+.wo-finished-modal__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.wo-finished-modal h3 {
+  margin: 4px 0 4px;
+  font-size: 1.1rem;
+}
+
+.wo-finished-modal p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.wo-finished-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.wo-finished-summary div {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: var(--surface-soft);
+}
+
+.wo-finished-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 680px) {
+  .wo-finished-summary {
     grid-template-columns: 1fr;
   }
 }

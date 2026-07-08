@@ -53,13 +53,14 @@ type ModalState =
   | { type: 'confirm-artwork'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'confirm-close'; workOrder: WorkOrder }
   | { type: 'confirm-cancel'; workOrder: WorkOrder }
+  | { type: 'finished-notice'; workOrder: WorkOrder }
   | null
 
 const NAV: Array<{ id: View; label: string; icon: Parameters<typeof Icon>[0]['name'] }> = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'orders', label: 'Work Order', icon: 'list' },
   { id: 'station', label: 'Stasiun Saya', icon: 'station' },
-  { id: 'wip', label: 'WIP', icon: 'boxes' },
+  { id: 'wip', label: 'Barang Proses', icon: 'boxes' },
   { id: 'reports', label: 'Laporan', icon: 'chart' },
   { id: 'people', label: 'People & Station', icon: 'user' },
 ]
@@ -496,7 +497,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
   const beginStep = async (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
     const status = deriveStepStatus(order, step)
-    if (status !== 'ready') return showToast('Proses belum siap. Periksa WIP atau HOLD terlebih dahulu.')
+    if (status !== 'ready') return showToast('Proses belum siap. Periksa input proses atau HOLD terlebih dahulu.')
 
     try {
       await startLiveWorkOrderStep({ stepId: step.id })
@@ -600,7 +601,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         <div className="brand">
           <span className="brand__eyebrow">Pusat Grosir Eceran</span>
           <strong className="brand__name">WO <em>Control</em></strong>
-          <p>Perintah kerja, proses nyata, WIP, QC, packing, dan blocker dalam satu tampilan.</p>
+          <p>Perintah kerja, proses nyata, barang proses, QC, packing, dan blocker dalam satu tampilan.</p>
         </div>
 
         <nav className="side-nav" aria-label="Navigasi Work Order">
@@ -621,7 +622,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         <header className="topbar">
           <div>
             <p className="eyebrow">Kontrol produksi PGE</p>
-            <h1>{view === 'dashboard' ? 'Setiap proses harus terlihat.' : view === 'orders' ? 'Daftar Work Order' : view === 'station' ? 'Stasiun Saya' : view === 'wip' ? 'WIP / Barang Setengah Jadi' : view === 'people' ? 'People & Station Access' : 'Ringkasan Operasional'}</h1>
+            <h1>{view === 'dashboard' ? 'Setiap proses harus terlihat.' : view === 'orders' ? 'Daftar Work Order' : view === 'station' ? 'Stasiun Saya' : view === 'wip' ? 'Barang Proses Antarstasiun' : view === 'people' ? 'People & Station Access' : 'Ringkasan Operasional'}</h1>
             <p className="topbar__subtitle">{view === 'dashboard'
               ? 'Prioritaskan pesanan customer, lihat langkah yang benar-benar siap, dan tindak blocker sebelum pekerjaan hilang di tengah proses.'
               : view === 'station'
@@ -646,9 +647,9 @@ export default function App({ currentUser, onSignOut }: AppProps) {
           <section className="view-content">
             <div className="metric-grid">
               <article className="metric-card metric-card--ink"><span>WO aktif</span><b>{formatNumber(activeOrders.length)}</b><small>Belum ditutup</small></article>
-              <article className="metric-card metric-card--blue"><span>Proses siap</span><b>{formatNumber(readyTasks.length)}</b><small>WIP / input tersedia</small></article>
+              <article className="metric-card metric-card--blue"><span>Proses siap</span><b>{formatNumber(readyTasks.length)}</b><small>Input proses tersedia</small></article>
               <article className="metric-card metric-card--purple"><span>QC menunggu</span><b>{formatNumber(qcTasks.length)}</b><small>Perlu keputusan QC</small></article>
-              <article className="metric-card metric-card--amber"><span>Menunggu WIP</span><b>{formatNumber(waitingTasks.length)}</b><small>Input belum cukup</small></article>
+              <article className="metric-card metric-card--amber"><span>Menunggu input proses</span><b>{formatNumber(waitingTasks.length)}</b><small>Input belum cukup</small></article>
               <article className="metric-card metric-card--red"><span>HOLD aktif</span><b>{formatNumber(holdTasks.length)}</b><small>Butuh pemilik keputusan</small></article>
               <article className="metric-card metric-card--shortfall"><span>Kekurangan qty</span><b>{formatNumber(shortfallActionQty)}</b><small>{shortfallOrders.length} WO butuh tindakan</small></article>
               <article className="metric-card metric-card--danger"><span>Lewat target</span><b>{formatNumber(overdueOrders.length)}</b><small>Prioritas pemulihan</small></article>
@@ -663,7 +664,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                 <header className="surface-card__header"><div><p className="eyebrow">Aturan kerja</p><h2>Yang tidak boleh dilanggar</h2></div></header>
                 <ol className="rule-list">
                   <li><b>WO harus dibuat sebelum proses dimulai.</b> Perintah lisan tetap harus masuk sistem.</li>
-                  <li><b>WIP wajib memiliki jumlah dan lokasi.</b> “Sudah jadi” bukan informasi yang cukup.</li>
+                  <li><b>Barang proses wajib memiliki jumlah dan lokasi.</b> “Sudah jadi” bukan informasi yang cukup.</li>
                   <li><b>QC lulus belum berarti selesai.</b> Produk baru selesai setelah packing tercatat.</li>
                   <li><b>HOLD harus punya alasan dan pemilik keputusan.</b> Bukan status untuk menyembunyikan keterlambatan.</li>
                 </ol>
@@ -672,8 +673,8 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
             <div className="dashboard-grid dashboard-grid--bottom">
               <article className="surface-card">
-                <header className="surface-card__header"><div><p className="eyebrow">Blocker</p><h2>Menunggu WIP</h2><span>Jangan menyalahkan stasiun berikutnya sebelum input benar-benar tersedia.</span></div></header>
-                <div className="queue-list queue-list--compact">{waitingTasks.length ? waitingTasks.slice(0, 4).map(({ order, step }, index) => renderTaskRow(order, step, index + 1)) : <div className="empty-state">Tidak ada proses yang tertahan karena WIP.</div>}</div>
+                <header className="surface-card__header"><div><p className="eyebrow">Blocker</p><h2>Menunggu input proses</h2><span>Jangan menyalahkan stasiun berikutnya sebelum input benar-benar tersedia.</span></div></header>
+                <div className="queue-list queue-list--compact">{waitingTasks.length ? waitingTasks.slice(0, 4).map(({ order, step }, index) => renderTaskRow(order, step, index + 1)) : <div className="empty-state">Tidak ada proses yang tertahan karena input proses.</div>}</div>
               </article>
               <article className="surface-card">
                 <header className="surface-card__header"><div><p className="eyebrow">HOLD</p><h2>Butuh keputusan</h2><span>Semua HOLD perlu tindakan nyata, bukan hanya catatan.</span></div></header>
@@ -686,7 +687,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         {view === 'orders' ? (
           <section className="view-content">
             <article className="surface-card">
-              <header className="surface-card__header"><div><p className="eyebrow">Daftar utama</p><h2>{hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2><span>{hasFullWorkOrderAccess(currentUser) ? 'Klik satu WO untuk melihat rute, WIP, PIC, timer, dan histori.' : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span></div><Badge kind="plain" value={`${filteredOrders.length} WO`} /></header>
+              <header className="surface-card__header"><div><p className="eyebrow">Daftar utama</p><h2>{hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2><span>{hasFullWorkOrderAccess(currentUser) ? 'Klik satu WO untuk melihat rute, input proses, PIC, timer, dan histori.' : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span></div><Badge kind="plain" value={`${filteredOrders.length} WO`} /></header>
               <div className="filter-row">
                 <label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari kode WO, produk, atau sumber order" /></label>
                 <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
@@ -736,7 +737,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                     <div><span><Icon name="check" /> {order.artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><h4>{finalArtwork.name}</h4><p>{finalArtwork.printNote || 'Buka detail WO untuk membaca instruksi cetak.'}</p><small>{order.artworkApprovalRequired ? (finalArtwork.approvedBy ? `Disetujui oleh ${finalArtwork.approvedBy}` : 'Disetujui untuk cetak') : 'File ini hanya referensi; Printing tidak dikunci oleh approval.'}</small></div>
                   </section> : null}
                   {isPrinting && order.artworkApprovalRequired && !finalArtwork ? <div className="station-artwork-blocked"><Icon name="warning" /><div><b>Printing diblokir</b><span>{artworkReadiness.reason}</span></div></div> : null}
-                  <div className="station-task-card__details"><span>Target <b>{formatNumber(step.plannedQty)}</b></span><span>Hasil baik <b>{formatNumber(step.qtyGood)}</b></span><span>WIP input <b>{Number.isFinite(getAvailableInputCap(order, step)) ? formatNumber(getAvailableInputCap(order, step)) : '—'}</b></span><span>Timer <b>{formatDuration(getOrderActiveSeconds({ ...order, steps: [step] }, clock))}</b></span></div>
+                  <div className="station-task-card__details"><span>Target <b>{formatNumber(step.plannedQty)}</b></span><span>Hasil baik <b>{formatNumber(step.qtyGood)}</b></span><span>Input proses <b>{Number.isFinite(getAvailableInputCap(order, step)) ? formatNumber(getAvailableInputCap(order, step)) : '—'}</b></span><span>Timer <b>{formatDuration(getOrderActiveSeconds({ ...order, steps: [step] }, clock))}</b></span></div>
                   {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
                   <footer><button className="button button--secondary" onClick={() => openOrder(order)}>Lihat WO</button>{operationAllowed && status === 'ready' ? <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => setModal({ type: 'confirm-start', workOrder: order, step })}><Icon name="play" /> {isPrinting ? (order.artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai'}</button> : null}{operationAllowed && status === 'in_progress' ? <><button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button>{step.station === 'qc' ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button> : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>}</> : null}{operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}{operationAllowed && status === 'hold' ? <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan</button> : null}</footer>
                 </article>
@@ -748,13 +749,13 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         {view === 'wip' ? (
           <section className="view-content">
             <article className="surface-card">
-              <header className="surface-card__header"><div><p className="eyebrow">Ketersediaan proses</p><h2>WIP per Work Order</h2><span>WIP tidak sama dengan stok gudang. Ini adalah hasil proses di dalam WO yang menunggu dipakai langkah berikutnya.</span></div></header>
+              <header className="surface-card__header"><div><p className="eyebrow">Ketersediaan proses</p><h2>Barang proses per Work Order</h2><span>Barang proses adalah hasil sementara di dalam WO yang menunggu dipakai langkah berikutnya. Ini berbeda dari stok gudang.</span></div></header>
               <div className="wip-summary-grid">
-                <div><span>Total WIP tersedia</span><b>{formatNumber(scopedOrders.flatMap((order) => order.steps.flatMap((step) => step.inputs.map((input) => getWipBalance(order, input)))).reduce((total, value) => total + value, 0))}</b><small>Unit di antarastasiun</small></div>
-                <div><span>WO dengan WIP</span><b>{formatNumber(scopedOrders.filter((order) => order.steps.some((step) => step.inputs.some((input) => getWipBalance(order, input) > 0))).length)}</b><small>WO belum selesai</small></div>
-                <div><span>WIP siap QC</span><b>{formatNumber(scopedOrders.reduce((total, order) => total + getWipBalance(order, 'Produk siap QC'), 0))}</b><small>Produk menunggu QC</small></div>
+                <div><span>Total barang proses</span><b>{formatNumber(scopedOrders.flatMap((order) => order.steps.flatMap((step) => step.inputs.map((input) => getWipBalance(order, input)))).reduce((total, value) => total + value, 0))}</b><small>Unit di antarastasiun</small></div>
+                <div><span>WO dengan barang proses</span><b>{formatNumber(scopedOrders.filter((order) => order.steps.some((step) => step.inputs.some((input) => getWipBalance(order, input) > 0))).length)}</b><small>WO belum selesai</small></div>
+                <div><span>Siap QC</span><b>{formatNumber(scopedOrders.reduce((total, order) => total + getWipBalance(order, 'Produk siap QC'), 0))}</b><small>Produk menunggu QC</small></div>
               </div>
-              <div className="table-wrap"><table className="wo-table"><thead><tr><th>WIP</th><th>WO / Produk</th><th>Tersedia</th><th>Langkah berikutnya</th><th>Lokasi</th><th /></tr></thead><tbody>
+              <div className="table-wrap"><table className="wo-table"><thead><tr><th>Barang proses</th><th>WO / Produk</th><th>Tersedia</th><th>Langkah berikutnya</th><th>Lokasi</th><th /></tr></thead><tbody>
                 {scopedOrders.flatMap((order) => Array.from(new Set(order.steps.flatMap((step) => step.inputs))).map((input) => ({ order, input, available: getWipBalance(order, input) })).filter((row) => row.available > 0)).map(({ order, input, available }) => {
                   const nextStep = order.steps.find((step) => step.inputs.includes(input) && deriveStepStatus(order, step) !== 'completed')
                   const sourceStep = order.steps.find((step) => step.output === input)
@@ -890,7 +891,18 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               note: data.note,
             })
             const liveOrders = await reloadWorkOrders()
-            setSelectedId(liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)?.id || modal.workOrder.id)
+            const refreshedOrder = liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)
+            const refreshedStatus = refreshedOrder ? deriveOrderStatus(refreshedOrder) : null
+
+            if (refreshedOrder && ['done', 'closed'].includes(refreshedStatus || '')) {
+              setSelectedId(null)
+              setView('dashboard')
+              setModal({ type: 'finished-notice', workOrder: refreshedOrder })
+              showToast(`${refreshedOrder.code} selesai. Kembali ke dashboard.`)
+              return
+            }
+
+            setSelectedId(refreshedOrder?.id || modal.workOrder.id)
             showToast(data.reject > 0 ? 'Hasil tersimpan. Reject tercatat dan akan masuk kontrol kekurangan berikutnya.' : 'Hasil proses tersimpan di Supabase.')
             setModal(null)
           } catch (error) {
@@ -1103,6 +1115,15 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         onConfirm={(imageId) => {
           void beginStep(modal.workOrder, modal.step, imageId)
           setModal(null)
+        }}
+      /> : null}
+
+      {modal?.type === 'finished-notice' ? <FinishedWorkOrderModal
+        workOrder={modal.workOrder}
+        onConfirm={() => {
+          setModal(null)
+          setSelectedId(null)
+          setView('dashboard')
         }}
       /> : null}
 
@@ -1478,8 +1499,8 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
 
   return <Modal title="Rencanakan & deploy Work Order" subtitle="Admin atau PPIC menetapkan pemilik proses, jalur pelaporan, dan lokasi kerja sebelum WO masuk ke lantai produksi." onClose={onClose} wide>
     <form className="form-stack deployment-plan" onSubmit={(event) => { event.preventDefault(); void deploy() }}>
-      <div className="callout"><Icon name="calendar" /><span><b>{workOrder.code}</b> · Rute dan WIP sudah dibuat saat Draft. Di tahap ini, Admin / PPIC menetapkan siapa yang bekerja, melapor ke siapa, dan bekerja di area mana.</span></div>
-      <div className="callout callout--warning"><Icon name="warning" /><span><b>Aturan aman:</b> urutan dan WIP dari template tidak diubah dari layar ini agar alur tidak putus. Ubah stasiun, PIC, pelaporan, dan lokasi hanya sebelum deploy; setelah proses mulai, struktur WO terkunci untuk audit.</span></div>
+      <div className="callout"><Icon name="calendar" /><span><b>{workOrder.code}</b> · Rute dan input proses sudah dibuat saat Draft. Di tahap ini, Admin / PPIC menetapkan siapa yang bekerja, melapor ke siapa, dan bekerja di area mana.</span></div>
+      <div className="callout callout--warning"><Icon name="warning" /><span><b>Aturan aman:</b> urutan dan input proses dari template tidak diubah dari layar ini agar alur tidak putus. Ubah stasiun, PIC, pelaporan, dan lokasi hanya sebelum deploy; setelah proses mulai, struktur WO terkunci untuk audit.</span></div>
       {workOrder.artworkApprovalRequired && !artworkReadiness.ready ? <div className="callout callout--warning"><Icon name="image" /><span><b>Artwork belum siap untuk cetak.</b> {artworkReadiness.reason} WO tetap dapat dideploy, tetapi Printing akan terkunci sampai file final disetujui.</span></div> : null}
       <div className="form-grid">
         <label><span>Tanggal jadwal</span><input type="date" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} /></label>
@@ -1548,6 +1569,29 @@ function StartProcessModal({ workOrder, step, currentUser, staffDirectory, onClo
   </Modal>
 }
 
+
+function FinishedWorkOrderModal({ workOrder, onConfirm }: { workOrder: WorkOrder; onConfirm: () => void }) {
+  const finalLabel = workOrder.type === 'mts' ? 'Masuk Gudang / Stok tersedia' : 'Packing selesai / Siap kirim'
+  return <Modal title="Work Order selesai" subtitle="Semua proses utama sudah tercatat selesai. Sistem mengembalikan Anda ke dashboard agar monitoring berikutnya lebih mudah." onClose={onConfirm}>
+    <div className="wo-finished-modal">
+      <div className="wo-finished-modal__icon"><Icon name="check" /></div>
+      <div>
+        <p className="eyebrow">{workOrder.code}</p>
+        <h3>{workOrder.product}</h3>
+        <p>{finalLabel}</p>
+      </div>
+    </div>
+    <div className="wo-finished-summary">
+      <div><span>Target WO</span><b>{formatNumber(workOrder.qty)} unit</b></div>
+      <div><span>Due date</span><b>{formatDate(workOrder.dueDate)}</b></div>
+      <div><span>Status</span><b>Selesai</b></div>
+    </div>
+    <footer className="modal-card__footer">
+      <button type="button" className="button button--primary" onClick={onConfirm}>Kembali ke dashboard</button>
+    </footer>
+  </Modal>
+}
+
 function LogResultModal({ workOrder, step, performerName, recordedByName, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; performerName: string; recordedByName: string; onClose: () => void; onSave: (data: { good: number; rework: number; reject: number; location: string; note: string }) => void }) {
   const cap = Math.min(step.plannedQty - getStepRecordedQty(step), getAvailableInputCap(workOrder, step))
   const [data, setData] = useState({ good: 0, rework: 0, reject: 0, location: step.location || '', note: '' })
@@ -1556,8 +1600,8 @@ function LogResultModal({ workOrder, step, performerName, recordedByName, onClos
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave(data) }}>
       <div className="result-summary"><div><span>Batas dapat dicatat</span><b>{formatNumber(cap)}</b></div><div><span>Draft sekarang</span><b className={total > cap ? 'text-danger' : ''}>{formatNumber(total)}</b></div><div><span>Sisa target</span><b>{formatNumber(Math.max(0, cap - total))}</b></div></div>
       <div className="assisted-progress-box"><Icon name="user" /><span><b>Pelaksana aktual:</b> {performerName}. <b>Dicatat oleh:</b> {recordedByName}.</span></div>
-      <div className="form-grid"><label><span>Hasil baik</span><input min="0" type="number" value={data.good} onChange={(event) => setData({ ...data, good: Number(event.target.value) })} /></label><label><span>Perlu rework</span><input min="0" type="number" value={data.rework} onChange={(event) => setData({ ...data, rework: Number(event.target.value) })} /></label><label><span>Reject</span><input min="0" type="number" value={data.reject} onChange={(event) => setData({ ...data, reject: Number(event.target.value) })} /></label><label><span>Lokasi hasil WIP</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder="Rak WIP / area berikutnya" /></label></div>
-      <label><span>Catatan hasil</span><textarea required value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder="Contoh: 50 panel baik masuk Rak WIP Jahit; 2 potongan miring." /></label>
+      <div className="form-grid"><label><span>Hasil baik</span><input min="0" type="number" value={data.good} onChange={(event) => setData({ ...data, good: Number(event.target.value) })} /></label><label><span>Perlu rework</span><input min="0" type="number" value={data.rework} onChange={(event) => setData({ ...data, rework: Number(event.target.value) })} /></label><label><span>Reject</span><input min="0" type="number" value={data.reject} onChange={(event) => setData({ ...data, reject: Number(event.target.value) })} /></label><label><span>Lokasi hasil proses</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder="Rak barang proses / area berikutnya" /></label></div>
+      <label><span>Catatan hasil</span><textarea required value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder="Contoh: 50 panel baik masuk Rak proses Jahit; 2 potongan miring." /></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={total <= 0 || total > cap}>Simpan hasil</button></footer>
     </form>
   </Modal>
@@ -1600,7 +1644,7 @@ function QcModal({ workOrder, step, currentUser, onClose, onSave }: { workOrder:
   return <Modal title="Keputusan QC" subtitle="Produk yang lulus masuk antrean packing. Produk rework kembali ke proses sebelumnya. Foto bukti defect opsional, tetapi sangat disarankan untuk kasus berulang atau reject final." onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ decision, qty, reject: decision === 'pass' ? reject : 0, note, defectCategory, evidence }) }}>
       <div className="segmented-control"><button type="button" className={decision === 'pass' ? 'is-active' : ''} onClick={() => setDecision('pass')}>Lulus QC</button><button type="button" className={decision === 'rework' ? 'is-active' : ''} onClick={() => setDecision('rework')}>Kembali ke rework</button></div>
-      <div className="result-summary"><div><span>WIP siap diperiksa</span><b>{formatNumber(cap)}</b></div><div><span>Qty keputusan</span><b>{formatNumber(qty)}</b></div><div><span>Reject final</span><b>{decision === 'pass' ? formatNumber(reject) : '—'}</b></div></div>
+      <div className="result-summary"><div><span>Input siap diperiksa</span><b>{formatNumber(cap)}</b></div><div><span>Qty keputusan</span><b>{formatNumber(qty)}</b></div><div><span>Reject final</span><b>{decision === 'pass' ? formatNumber(reject) : '—'}</b></div></div>
       <div className="form-grid"><label><span>{decision === 'pass' ? 'Qty lulus QC' : 'Qty dikembalikan'}</span><input min="1" max={cap} type="number" value={qty} onChange={(event) => setQty(Number(event.target.value))} /></label>{decision === 'pass' ? <label><span>Reject final</span><input min="0" max={cap - qty} type="number" value={reject} onChange={(event) => setReject(Number(event.target.value))} /></label> : <label><span>Tujuan rework</span><input disabled value="Kembali ke stasiun proses sebelumnya" /></label>}</div>
       {needsDefect ? <div className="quality-capture-panel">
         <div className="quality-capture-panel__head"><b>Detail defect</b><span>Wajib pilih kategori bila ada rework atau reject</span></div>
@@ -1659,7 +1703,7 @@ function ShortfallActionModal({
         <button type="button" className={action === 'cancel_remaining' ? 'is-active' : ''} onClick={() => setAction('cancel_remaining')}>Batalkan sisa</button>
       </div>
       <div className={`shortfall-action-modal__notice shortfall-action-modal__notice--${action}`}><Icon name="warning" /><span>{actionCopy}</span></div>
-      {action === 'replacement' ? <label><span>Mulai penggantian dari proses</span><select required value={restartFromStepId} onChange={(event) => setRestartFromStepId(event.target.value)}>{options.map((step) => <option key={step.id} value={step.id}>P{String(step.sequence).padStart(2, '0')} · {step.name} · {stationLabels[step.station]}</option>)}</select><small>Jika bahan/WIP dari proses sebelumnya sudah habis, pilih proses yang lebih awal. Sistem akan menggandakan langkah dari titik ini sampai titik reject.</small></label> : null}
+      {action === 'replacement' ? <label><span>Mulai penggantian dari proses</span><select required value={restartFromStepId} onChange={(event) => setRestartFromStepId(event.target.value)}>{options.map((step) => <option key={step.id} value={step.id}>P{String(step.sequence).padStart(2, '0')} · {step.name} · {stationLabels[step.station]}</option>)}</select><small>Jika bahan/input proses sebelumnya sudah habis, pilih proses yang lebih awal. Sistem akan menggandakan langkah dari titik ini sampai titik reject.</small></label> : null}
       <label><span>Catatan keputusan</span><textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={action === 'replacement' ? 'Contoh: ulang dari Printing karena tidak ada panel cadangan untuk Cutting.' : action === 'short_shipment' ? 'Contoh: customer menyetujui pengiriman 95 dari 100 unit melalui chat tanggal 07 Juli.' : 'Contoh: 5 unit sisa dibatalkan karena campaign berakhir.'} /></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className={`button ${action === 'replacement' ? 'button--warning' : action === 'short_shipment' ? 'button--primary' : 'button--danger'}`}>{action === 'replacement' ? 'Buat rute penggantian' : action === 'short_shipment' ? 'Setujui kirim kurang' : 'Batalkan sisa'}</button></footer>
     </form>
@@ -1726,7 +1770,7 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
     { id: 'daily', label: 'Produksi Harian' },
     { id: 'overdue', label: 'WO Terlambat' },
     { id: 'defects', label: 'Reject & Defect' },
-    { id: 'wip-aging', label: 'WIP Aging' },
+    { id: 'wip-aging', label: 'Aging Barang Proses' },
     { id: 'operator', label: 'Beban Operator' },
     { id: 'machine', label: 'Beban Mesin' },
     { id: 'customer', label: 'Penyelesaian Customer' },
@@ -1748,7 +1792,7 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
       {tab === 'daily' ? <ReportTable headers={['WO / Produk', 'Stasiun / PIC', 'Output', 'Status', 'Catatan']} rows={dailyRows.map(({ order, step }) => [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><Badge kind="station" value={step.station} /><small>{nameOf(step.assignedUserId)}</small></span>, <span><b>{formatNumber(step.qtyGood)}</b> baik · {formatNumber(step.qtyRework)} rework · {formatNumber(step.qtyReject)} reject</span>, <Badge kind="process" value={deriveStepStatus(order, step)} />, <span>{step.defectCategory ? defectCategoryLabels[step.defectCategory] : step.holdReason || 'Aktivitas / output saat ini'}</span>])} empty="Belum ada output atau proses aktif pada filter ini." /> : null}
       {tab === 'overdue' ? <ReportTable headers={['WO', 'Target selesai', 'Proses saat ini', 'PIC', 'Blocker']} rows={overdueRows.map((order) => { const step = getCurrentProcess(order); return [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><b>{formatDate(order.dueDate)}</b><small>{Math.max(1, Math.ceil((Date.now() - new Date(`${order.dueDate}T23:59:59`).getTime()) / 86400000))} hari terlambat</small></span>, step ? <span><Badge kind="station" value={step.station} /><small>{step.name}</small></span> : '—', step ? nameOf(step.assignedUserId) : '—', getBlockerSummary(order) || 'Tidak ada blocker aktif'] })} empty="Tidak ada WO terlambat pada filter ini." /> : null}
       {tab === 'defects' ? <ReportTable headers={['WO', 'Stasiun / PIC', 'Kategori defect', 'Rework / reject', 'Bukti foto']} rows={defectRows.map(({ order, step }) => [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><Badge kind="station" value={step.station} /><small>{nameOf(step.assignedUserId)}</small></span>, step.defectCategory ? defectCategoryLabels[step.defectCategory] : 'Belum dikategorikan', <span>{formatNumber(step.qtyRework)} rework · <b>{formatNumber(step.qtyReject)} reject</b></span>, step.defectEvidence?.length ? <span className="evidence-thumb-row">{step.defectEvidence.map((item) => <img key={item.id} src={item.dataUrl} alt={item.name} title={item.name} />)}</span> : <span className="muted-copy">Tidak ada foto · opsional</span>])} empty="Belum ada defect atau reject pada filter ini." /> : null}
-      {tab === 'wip-aging' ? <ReportTable headers={['WIP', 'WO / Produk', 'Qty tersedia', 'Langkah berikutnya', 'Usia WO']} rows={wipRows.map((row) => { const next = row.order.steps.find((step) => step.inputs.includes(row.input) && deriveStepStatus(row.order, step) !== 'completed'); const age = Math.max(0, Math.floor((Date.now() - new Date(row.order.createdAt).getTime()) / 86400000)); return [row.input, <button className="text-button" onClick={() => onOpenOrder(row.order)}>{row.order.code}<small>{row.order.product}</small></button>, formatNumber(row.available), next ? <span><Badge kind="station" value={next.station} /><small>{next.name}</small></span> : 'Tidak ada', <span className={age >= 2 ? 'text-danger' : ''}>{age} hari</span>] })} empty="Tidak ada WIP aktif pada filter ini." /> : null}
+      {tab === 'wip-aging' ? <ReportTable headers={['Barang proses', 'WO / Produk', 'Qty tersedia', 'Langkah berikutnya', 'Usia WO']} rows={wipRows.map((row) => { const next = row.order.steps.find((step) => step.inputs.includes(row.input) && deriveStepStatus(row.order, step) !== 'completed'); const age = Math.max(0, Math.floor((Date.now() - new Date(row.order.createdAt).getTime()) / 86400000)); return [row.input, <button className="text-button" onClick={() => onOpenOrder(row.order)}>{row.order.code}<small>{row.order.product}</small></button>, formatNumber(row.available), next ? <span><Badge kind="station" value={next.station} /><small>{next.name}</small></span> : 'Tidak ada', <span className={age >= 2 ? 'text-danger' : ''}>{age} hari</span>] })} empty="Tidak ada barang proses aktif pada filter ini." /> : null}
       {tab === 'operator' ? <ReportTable headers={['PIC', 'Proses ditugaskan', 'Aktif', 'Siap antre', 'Terlambat', 'Waktu aktif']} rows={operatorRows.sort((a, b) => b.active - a.active || b.assigned - a.assigned).map((row) => [nameOf(row.id), row.assigned, row.active, row.queued, <span className={row.overdue ? 'text-danger' : ''}>{row.overdue}</span>, formatDuration(row.seconds)])} empty="Belum ada penugasan PIC pada filter ini." /> : null}
       {tab === 'machine' ? <ReportTable headers={['Mesin / resource', 'WO terjadwal', 'WO aktif', 'WO terlambat', 'Waktu aktif']} rows={machineRows.sort((a, b) => b.active - a.active || b.orders - a.orders).map((row) => [row.machine, row.orders, row.active, <span className={row.overdue ? 'text-danger' : ''}>{row.overdue}</span>, formatDuration(row.seconds)])} empty="Belum ada WO pada filter ini." /> : null}
       {tab === 'customer' ? <ReportTable headers={['Customer / sumber', 'WO', 'Target', 'Terpacking', 'Status penyelesaian']} rows={filtered.filter((order) => order.type === 'mto').map((order) => { const summary = getShortfallSummary(order); return [order.source, <button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, formatNumber(order.qty), formatNumber(summary.packedGood), <span><b>{formatNumber(getProgress(order))}%</b><small>{getBlockerSummary(order) || statusLabels[deriveOrderStatus(order)]}</small></span>] })} empty="Tidak ada WO customer pada filter ini." /> : null}
