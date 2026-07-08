@@ -11,13 +11,12 @@ type ModalProps = {
 
 export function Modal({ title, subtitle, children, onClose, wide = false }: ModalProps) {
   return (
-    <div className="modal-layer" role="presentation" onMouseDown={onClose}>
+    <div className="modal-layer" role="presentation">
       <section
         className={`modal-card${wide ? ' modal-card--wide' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="modal-card__header">
           <div>
