@@ -54,12 +54,17 @@ const getMemberName = (id: string | undefined, team: TeamMember[], staffDirector
   return staffDirectory.find((member) => member.id === id)?.name || fallback
 }
 
+const getMemberAccessMode = (id: string | undefined, staffDirectory: StaffDirectoryMember[]) => {
+  if (!id) return undefined
+  return staffDirectory.find((member) => member.id === id)?.accessMode
+}
+
 function canOperateStep(currentUser: TeamMember, step: ProcessStep) {
-  // Assignment, not broad station membership, controls the frontend task scope.
-  // The backend will repeat this rule with authenticated user IDs.
-  return !['admin', 'ppic', 'manager'].includes(currentUser.role)
-    && Boolean(step.assignedUserId)
-    && step.assignedUserId === currentUser.id
+  // Admin and PPIC may record progress for admin-assisted employees, such as Sewing.
+  // Floor users still only operate tickets explicitly assigned to their own login account.
+  if (['admin', 'ppic'].includes(currentUser.role)) return Boolean(step.assignedUserId)
+  if (currentUser.role === 'manager') return false
+  return Boolean(step.assignedUserId) && step.assignedUserId === currentUser.id
 }
 
 function approvalClass(image: WorkOrderReferenceImage) {
@@ -235,6 +240,8 @@ export function WorkOrderDrawer({
               const inputCap = getAvailableInputCap(workOrder, step)
               const canOperate = canOperateStep(currentUser, step)
               const canAssign = ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
+              const performerAccessMode = getMemberAccessMode(step.assignedUserId, staffDirectory)
+              const isAdminAssisted = performerAccessMode === 'admin_assisted' && ['admin', 'ppic'].includes(currentUser.role)
               const isPrinting = step.station === 'printing'
               const startBlocked = isPrinting && !artworkReadiness.ready
               const isCurrent = currentStep?.id === step.id
@@ -248,12 +255,13 @@ export function WorkOrderDrawer({
                 </div> : null}
                 {isPrinting && artworkApprovalRequired && !finalArtwork ? <div className="printing-final-panel printing-final-panel--blocked"><Icon name="warning" /><div><b>Printing diblokir</b><small>{artworkReadiness.reason}</small></div></div> : null}
                 {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
+                {isAdminAssisted ? <div className="assisted-progress-box"><Icon name="user" /><span><b>Update dibantu Admin/PPIC.</b> PIC aktual tetap {getMemberName(step.assignedUserId, team, staffDirectory)}, tetapi progress dicatat oleh akun yang sedang login.</span></div> : null}
                 <footer className="process-ticket__footer"><div className="process-ticket__actions">
                   {canAssign ? <button className="button button--secondary" onClick={() => onAssign(step)}>Atur PIC</button> : null}
-                  {canOperate && stepStatus === 'ready' ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {isPrinting ? (artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai proses'}</button> : null}
+                  {canOperate && stepStatus === 'ready' ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {isPrinting ? (artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : isAdminAssisted ? 'Mulai atas nama PIC' : 'Mulai proses'}</button> : null}
                   {canOperate && stepStatus === 'in_progress' ? <button className="button button--secondary" onClick={() => onPause(step)}><Icon name="pause" /> Jeda</button> : null}
                   {canOperate && stepStatus === 'in_progress' && step.station === 'qc' ? <button className="button button--primary" onClick={() => onQcDecision(step)}>Keputusan QC</button> : null}
-                  {canOperate && stepStatus === 'in_progress' && step.station !== 'qc' ? <button className="button button--primary" onClick={() => onLogResult(step)}>Catat hasil</button> : null}
+                  {canOperate && stepStatus === 'in_progress' && step.station !== 'qc' ? <button className="button button--primary" onClick={() => onLogResult(step)}>{isAdminAssisted ? 'Catat hasil PIC' : 'Catat hasil'}</button> : null}
                   {canOperate && ['ready', 'in_progress'].includes(stepStatus) ? <button className="button button--danger-soft" onClick={() => onHold(step)}>HOLD</button> : null}
                   {canOperate && stepStatus === 'hold' ? <button className="button button--success-soft" onClick={() => onResume(step)}>Lanjutkan</button> : null}
                 </div></footer>
