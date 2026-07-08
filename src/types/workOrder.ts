@@ -71,6 +71,8 @@ export interface StaffDirectoryMember {
   employeeNumber?: string
   kind: 'staff' | 'planner'
   isActive?: boolean
+  accessMode?: 'self_service' | 'admin_assisted' | 'no_system_access'
+  profileId?: string
   /** Explicit eligibility list. Empty/undefined means not yet configured for production assignment. */
   allowedStations?: Station[]
   defaultReportToUserId?: string
