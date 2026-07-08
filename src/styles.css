@@ -296,7 +296,7 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 .legend-dot--required { background: #d97706; }
 .legend-dot--station { background: linear-gradient(90deg, #2563eb 0 14%, #ea580c 14% 28%, #b45309 28% 42%, #7c3aed 42% 56%, #db2777 56% 70%, #059669 70% 85%, #65a30d 85% 100%); }
 .deployment-plan__steps { display: grid; gap: 9px; }
-.deployment-step { display: grid; grid-template-columns: 42px minmax(150px, 1.2fr) repeat(4, minmax(132px, .9fr)); gap: 8px; align-items: end; padding: 10px; border: 1px solid #e1e1dc; border-left: 5px solid #64748b; border-radius: 8px; background: #fff; }
+.deployment-step { display: grid; grid-template-columns: 42px minmax(145px, 1.1fr) repeat(5, minmax(120px, .85fr)); gap: 8px; align-items: end; padding: 10px; border: 1px solid #e1e1dc; border-left: 5px solid #64748b; border-radius: 8px; background: #fff; }
 .deployment-step--station-printing { border-left-color: #2563eb; background: #f8fbff; }
 .deployment-step--station-cutting { border-left-color: #ea580c; background: #fffaf6; }
 .deployment-step--station-warehouse { border-left-color: #b45309; background: #fffdf7; }
@@ -310,7 +310,7 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 .deployment-step__process b { display: block; color: #262626; font-size: 11px; line-height: 1.35; }
 .deployment-step__process span { display: block; margin-top: 3px; color: #7d7d7d; font-size: 9px; line-height: 1.42; }
 .deployment-step label { display: grid; gap: 4px; min-width: 0; color: #686868; font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .065em; }
-.deployment-step select { width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deployment-step select, .deployment-step input { width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 1080px) {
   .deployment-step { grid-template-columns: 38px minmax(180px, 1fr) repeat(2, minmax(150px, 1fr)); }

@@ -5,7 +5,7 @@ import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
-import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders } from './lib/liveWorkOrders'
+import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, scheduleLiveWorkOrder } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
@@ -821,18 +821,24 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         staffDirectory={staffDirectory}
         team={teamForViews}
         onClose={() => setModal(null)}
-        onSave={(data) => {
-          const plannedSteps = data.steps.map((step, index) => ({ ...step, sequence: index + 1, status: 'not_ready' as const, startedAt: undefined, activeSeconds: 0 }))
-          const updated: WorkOrder = {
-            ...modal.workOrder,
-            status: 'scheduled',
-            machine: data.machine,
+        onSave={async (data) => {
+          await scheduleLiveWorkOrder({
+            workOrderId: modal.workOrder.id,
             scheduledDate: data.scheduledDate,
-            steps: plannedSteps,
-            history: [makeHistory(currentUser, 'WO direncanakan & dideploy', `${plannedSteps.length} proses: PIC, lapor ke, dan area kerja sudah ditetapkan sebelum WO dirilis. Jadwal ${data.scheduledDate} · ${data.machine}.`), ...modal.workOrder.history],
-          }
-          applyOrderUpdate(updated, 'WO dideploy. PIC, pelaporan, dan lokasi sudah tercatat per proses.')
+            machine: data.machine,
+            steps: data.steps.map((step) => ({
+              stepId: step.id,
+              station: step.station,
+              assignedEmployeeId: step.assignedUserId || '',
+              reportToEmployeeId: step.reportToUserId || '',
+              workArea: step.location || '',
+              scheduledDate: step.scheduledDate || data.scheduledDate,
+            })),
+          })
+          const liveOrders = await reloadWorkOrders()
+          setSelectedId(liveOrders.find((order) => order.id === modal.workOrder.id)?.id || modal.workOrder.id)
           setModal(null)
+          showToast('WO berhasil dideploy ke jadwal produksi live Supabase.')
         }}
       /> : null}
 
@@ -1437,16 +1443,18 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
   staffDirectory: StaffDirectoryMember[]
   team: TeamMember[]
   onClose: () => void
-  onSave: (data: { machine: string; scheduledDate: string; steps: ProcessStep[] }) => void
+  onSave: (data: { machine: string; scheduledDate: string; steps: ProcessStep[] }) => Promise<void> | void
 }) {
   const [machine, setMachine] = useState(workOrder.machine || 'Manual / tidak memakai mesin')
   const [scheduledDate, setScheduledDate] = useState(workOrder.scheduledDate || new Date().toISOString().slice(0, 10))
   const [plannedSteps, setPlannedSteps] = useState<ProcessStep[]>(() => workOrder.steps.map((step) => ({
     ...step,
+    scheduledDate: step.scheduledDate || workOrder.scheduledDate || new Date().toISOString().slice(0, 10),
     reportToUserId: step.reportToUserId || getDefaultReportToUserId(directory, team),
     location: step.location || defaultLocationForStation(step.station),
   })))
   const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const artworkReadiness = getArtworkReadiness(workOrder)
 
   const updatePlan = (stepId: string, patch: Partial<ProcessStep>) => {
@@ -1457,17 +1465,26 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
     } : step))
   }
 
-  const deploy = () => {
-    const missing = plannedSteps.filter((step) => !step.assignedUserId || !step.reportToUserId || !step.location)
+  const deploy = async () => {
+    const missing = plannedSteps.filter((step) => !step.assignedUserId || !step.reportToUserId || !step.location || !step.scheduledDate)
     if (missing.length) {
-      setError(`Lengkapi PIC, lapor ke, dan area kerja pada ${missing.length} proses sebelum WO dideploy.`)
+      setError(`Lengkapi PIC, lapor ke, area kerja, dan tanggal rencana pada ${missing.length} proses sebelum WO dideploy.`)
       return
     }
-    onSave({ machine, scheduledDate, steps: plannedSteps })
+
+    setIsSubmitting(true)
+    setError('')
+
+    try {
+      await onSave({ machine, scheduledDate, steps: plannedSteps })
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'WO tidak dapat dideploy.')
+      setIsSubmitting(false)
+    }
   }
 
   return <Modal title="Rencanakan & deploy Work Order" subtitle="Admin atau PPIC menetapkan pemilik proses, jalur pelaporan, dan lokasi kerja sebelum WO masuk ke lantai produksi." onClose={onClose} wide>
-    <form className="form-stack deployment-plan" onSubmit={(event) => { event.preventDefault(); deploy() }}>
+    <form className="form-stack deployment-plan" onSubmit={(event) => { event.preventDefault(); void deploy() }}>
       <div className="callout"><Icon name="calendar" /><span><b>{workOrder.code}</b> · Rute dan WIP sudah dibuat saat Draft. Di tahap ini, Admin / PPIC menetapkan siapa yang bekerja, melapor ke siapa, dan bekerja di area mana.</span></div>
       <div className="callout callout--warning"><Icon name="warning" /><span><b>Aturan aman:</b> urutan dan WIP dari template tidak diubah dari layar ini agar alur tidak putus. Ubah stasiun, PIC, pelaporan, dan lokasi hanya sebelum deploy; setelah proses mulai, struktur WO terkunci untuk audit.</span></div>
       {workOrder.artworkApprovalRequired && !artworkReadiness.ready ? <div className="callout callout--warning"><Icon name="image" /><span><b>Artwork belum siap untuk cetak.</b> {artworkReadiness.reason} WO tetap dapat dideploy, tetapi Printing akan terkunci sampai file final disetujui.</span></div> : null}
@@ -1482,6 +1499,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
           {plannedSteps.map((step, index) => <article className={`deployment-step deployment-step--station-${step.station}`} key={step.id}>
             <div className="deployment-step__sequence">P{String(index + 1).padStart(2, '0')}</div>
             <div className="deployment-step__process"><b>{step.name}</b><span>{step.inputs.length ? `Butuh: ${step.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {step.output}</span></div>
+            <label><span>Tanggal rencana *</span><input type="date" value={step.scheduledDate || scheduledDate} onChange={(event) => updatePlan(step.id, { scheduledDate: event.target.value })} /></label>
             <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station, location: defaultLocationForStation(event.target.value as Station) })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
             <label><span>PIC pelaksana *</span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Hanya PIC yang dipilih yang dapat melihat dan menjalankan tiket ini. Jika daftar kosong, atur akses personel di menu People & Station.</small></label>
             <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
@@ -1490,7 +1508,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
         </div>
       </section>
       {error ? <div className="callout callout--danger"><Icon name="warning" /><span>{error}</span></div> : null}
-      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Simpan sebagai draft</button><button type="submit" className="button button--primary"><Icon name="play" /> Deploy WO</button></footer>
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Simpan sebagai draft</button><button type="submit" className="button button--primary" disabled={isSubmitting}><Icon name="play" /> {isSubmitting ? 'Deploying...' : 'Deploy WO'}</button></footer>
     </form>
   </Modal>
 }
