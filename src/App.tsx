@@ -634,7 +634,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               <span><b>{currentUser.name}</b><small>{currentUser.role === 'admin' || currentUser.role === 'ppic' ? `${roleLabels[currentUser.role]} · Supabase verified` : roleLabels[currentUser.role]}</small></span>
               <button className="button button--secondary button--compact" type="button" onClick={onSignOut}>Keluar</button>
             </div>
-            {currentUser.role === 'admin' ? <button className="button button--primary" onClick={() => setModal({ type: 'create' })}><Icon name="plus" /> Buat WO</button> : null}
+            {['admin', 'ppic'].includes(currentUser.role) ? <button className="button button--primary" onClick={() => setModal({ type: 'create' })}><Icon name="plus" /> Buat WO</button> : null}
           </div>
         </header>
 
