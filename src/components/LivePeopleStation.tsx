@@ -210,6 +210,30 @@ export function LivePeopleStation() {
 
     setBusyEmployeeId(null)
   }
+  const resetEmployeePin = async (person: Employee) => {
+    const client = supabase
+    if (!client || !person.profile_id) return
+
+    const confirmed = window.confirm(`Reset PIN ${person.full_name} menjadi 00000000?`)
+    if (!confirmed) return
+
+    setBusyEmployeeId(person.id)
+    setNotice('')
+    setError('')
+
+    const { error: invokeError } = await client.functions.invoke('admin-reset-pin', {
+      body: { employeeId: person.id },
+    })
+
+    if (invokeError) {
+      setError(invokeError.message || 'PIN tidak dapat direset. Pastikan Edge Function admin-reset-pin sudah dideploy.')
+    } else {
+      setNotice(`PIN ${person.full_name} direset ke 00000000.`)
+    }
+
+    setBusyEmployeeId(null)
+  }
+
 
   const toggleStation = async (person: Employee, station: Station, next: boolean) => {
     const client = supabase
@@ -377,6 +401,7 @@ export function LivePeopleStation() {
                   <span>Status karyawan</span>
                   <b>{person.is_active ? 'Aktif' : 'Nonaktif'}</b>
                   <small>{activeStations} stasiun aktif · {person.profile_id ? 'akun login terhubung' : 'tanpa akun login'}</small>
+                  {person.profile_id ? <button type="button" className="button button--secondary button--compact" disabled={busyEmployeeId === person.id} onClick={() => void resetEmployeePin(person)}>Reset PIN</button> : null}
                 </div>
               </section>
             </article>
