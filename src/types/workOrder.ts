@@ -94,6 +94,8 @@ export interface ProcessStep {
   /** Optional escalation / reporting owner selected before WO deployment. */
   reportToUserId?: string
   plannedQty: number
+  /** Planned execution date for this specific process step. */
+  scheduledDate?: string
   inputs: string[]
   output: string
   status: ProcessStatus
