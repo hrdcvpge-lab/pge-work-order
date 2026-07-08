@@ -235,3 +235,13 @@ export async function createLiveDraftWorkOrder(input: DraftWorkOrderInput): Prom
 
   return { id: String(row.id), code: String(row.code) }
 }
+
+export async function deleteLiveDraftWorkOrder(workOrderId: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('delete_draft_work_order', {
+    target_work_order_id: workOrderId,
+  })
+
+  if (error) throw new Error(error.message)
+}
