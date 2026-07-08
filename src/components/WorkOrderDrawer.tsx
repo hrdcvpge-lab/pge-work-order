@@ -242,7 +242,24 @@ export function WorkOrderDrawer({
               return <article className={`process-ticket process-ticket--station-${step.station}${step.isReplacement ? ' process-ticket--replacement' : ''}${isCurrent ? ' process-ticket--current' : ''}${isLive ? ' process-ticket--live' : ''}`} key={step.id}>
                 <header><div><span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'}{step.isReplacement ? ' · Rute penggantian' : ''}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{step.isReplacement ? <em className="replacement-indicator">↻ Penggantian</em> : null}{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></header>
                 <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>Hasil baik</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div></div>
-                <div className="process-ticket__inputs"><b>Input WIP</b><span>{step.inputs.length ? step.inputs.map((input) => `${input}: ${formatNumber(getWipBalance(workOrder, input))}`).join(' · ') : 'Mulai langsung'}</span><small>{Number.isFinite(inputCap) ? `Maksimal dapat diproses sekarang: ${formatNumber(inputCap)} unit` : 'Tidak menunggu WIP dari proses sebelumnya.'}</small></div>
+                <div className="process-ticket__input-panel">
+                  <div className="process-ticket__input-hero">
+                    <span>Input WIP</span>
+                    <b>{step.inputs.length ? 'Input dari proses sebelumnya' : 'Mulai langsung'}</b>
+                    <small>{step.inputs.length ? 'Jumlah yang tersedia menentukan kapasitas kerja saat ini.' : 'Proses ini tidak menunggu output dari langkah sebelumnya.'}</small>
+                  </div>
+                  <div className="process-ticket__input-detail">
+                    <span>Detail input</span>
+                    {step.inputs.length ? <div className="process-ticket__input-chips">
+                      {step.inputs.map((input) => <em key={input}>{input}<strong>{formatNumber(getWipBalance(workOrder, input))}</strong></em>)}
+                    </div> : <b>Tidak ada input WIP</b>}
+                  </div>
+                  <div className="process-ticket__input-capacity">
+                    <span>Kapasitas saat ini</span>
+                    <b>{Number.isFinite(inputCap) ? `${formatNumber(inputCap)} unit` : 'Tidak dibatasi input'}</b>
+                    <small>{Number.isFinite(inputCap) ? 'Maksimal dapat diproses sekarang.' : 'Langkah awal bisa dimulai sesuai target.'}</small>
+                  </div>
+                </div>
                 {isPrinting && finalArtwork ? <div className="printing-final-panel">
                   <button type="button" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={finalArtwork.name} /></button><div><span>{artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><b>{finalArtwork.name}</b><small>{finalArtwork.printNote || (artworkApprovalRequired ? 'Buka file final sebelum mulai cetak.' : 'File ini dapat dipakai sebagai referensi operator.')}</small>{artworkApprovalRequired ? (step.artworkConfirmedAt ? <em><Icon name="check" /> Diverifikasi oleh {step.artworkConfirmedBy} · {formatDateTime(step.artworkConfirmedAt)}</em> : <em><Icon name="warning" /> Operator wajib review dan konfirmasi file final saat mulai.</em>) : <em><Icon name="check" /> Approval artwork tidak diwajibkan untuk WO ini.</em>}</div>
                 </div> : null}
