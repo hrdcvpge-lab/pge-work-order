@@ -23,6 +23,12 @@ type DbWorkOrderRow = {
   work_order_steps?: DbStepRow[] | null
 }
 
+type DbAssignmentRow = {
+  employee_id: string | null
+  assignment_type: 'executor' | 'report_to'
+  is_active: boolean
+}
+
 type DbStepRow = {
   id: string
   sequence_no: number
@@ -38,6 +44,7 @@ type DbStepRow = {
   started_at: string | null
   completed_at: string | null
   hold_reason: string | null
+  work_order_assignments?: DbAssignmentRow[] | null
 }
 
 type DbStationRow = {
@@ -58,6 +65,20 @@ export type DraftWorkOrderInput = {
   routeTemplateId: string
   customRoute: string[]
   steps: ProcessStep[]
+}
+
+export type ScheduleWorkOrderInput = {
+  workOrderId: string
+  scheduledDate: string
+  machine: string
+  steps: Array<{
+    stepId: string
+    station: Station
+    assignedEmployeeId: string
+    reportToEmployeeId: string
+    workArea: string
+    scheduledDate: string
+  }>
 }
 
 const stationToDbCode: Record<Station, DbStationCode> = {
@@ -94,6 +115,9 @@ function parseNumber(value: number | string | null | undefined) {
 
 function mapStep(row: DbStepRow, stationsById: Map<string, DbStationRow>): ProcessStep {
   const stationCode = stationsById.get(row.station_id)?.code || 'warehouse'
+  const assignments = (row.work_order_assignments || []).filter((assignment) => assignment.is_active)
+  const executor = assignments.find((assignment) => assignment.assignment_type === 'executor')
+  const reportTo = assignments.find((assignment) => assignment.assignment_type === 'report_to')
 
   return {
     id: row.id,
@@ -104,6 +128,9 @@ function mapStep(row: DbStepRow, stationsById: Map<string, DbStationRow>): Proce
     inputs: row.input_wip_name ? [row.input_wip_name] : [],
     output: row.output_wip_name || 'Output proses',
     status: dbStepStatusToUi(row.status),
+    assignedUserId: executor?.employee_id || undefined,
+    reportToUserId: reportTo?.employee_id || undefined,
+    scheduledDate: row.scheduled_date || undefined,
     qtyGood: 0,
     qtyRework: 0,
     qtyReject: 0,
@@ -183,7 +210,12 @@ export async function fetchLiveWorkOrders(): Promise<WorkOrder[]> {
           machine_name,
           started_at,
           completed_at,
-          hold_reason
+          hold_reason,
+          work_order_assignments (
+            employee_id,
+            assignment_type,
+            is_active
+          )
         )
       `)
       .order('created_at', { ascending: false }),
@@ -241,6 +273,29 @@ export async function deleteLiveDraftWorkOrder(workOrderId: string): Promise<voi
 
   const { error } = await supabase.rpc('delete_draft_work_order', {
     target_work_order_id: workOrderId,
+  })
+
+  if (error) throw new Error(error.message)
+}
+
+
+export async function scheduleLiveWorkOrder(input: ScheduleWorkOrderInput): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('schedule_work_order', {
+    target_work_order_id: input.workOrderId,
+    payload: {
+      scheduled_date: input.scheduledDate,
+      main_machine: input.machine,
+      steps: input.steps.map((step) => ({
+        step_id: step.stepId,
+        station_code: stationToDbCode[step.station],
+        executor_employee_id: step.assignedEmployeeId,
+        report_to_employee_id: step.reportToEmployeeId,
+        work_area: step.workArea,
+        scheduled_date: step.scheduledDate,
+      })),
+    },
   })
 
   if (error) throw new Error(error.message)
