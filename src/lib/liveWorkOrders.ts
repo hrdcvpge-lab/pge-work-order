@@ -348,3 +348,39 @@ export async function recordLiveWorkOrderStepOutput(input: RecordStepOutputInput
 
   if (error) throw new Error(error.message)
 }
+
+export type RecordQcDecisionInput = {
+  stepId: string
+  decision: 'pass' | 'rework'
+  qty: number
+  reject: number
+  location?: string
+  note: string
+  defectCategory: string
+}
+
+const defectCategoryToDb: Record<string, string> = {
+  wrong_artwork: 'wrong_motif_artwork',
+  lining_issue: 'furing_issue',
+  branding_incorrect: 'logo_branding_incorrect',
+}
+
+export async function recordLiveQcDecision(input: RecordQcDecisionInput): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('record_qc_decision', {
+    target_step_id: input.stepId,
+    payload: {
+      decision: input.decision,
+      qty: input.qty,
+      passed_qty: input.decision === 'pass' ? input.qty : 0,
+      rework_qty: input.decision === 'rework' ? input.qty : 0,
+      rejected_qty: input.decision === 'pass' ? input.reject : 0,
+      location: input.location || null,
+      note: input.note || null,
+      defect_category: defectCategoryToDb[input.defectCategory] || input.defectCategory || 'other',
+    },
+  })
+
+  if (error) throw new Error(error.message)
+}
