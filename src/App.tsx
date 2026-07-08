@@ -5,7 +5,7 @@ import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
-import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveWorkOrderStepOutput, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
+import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
@@ -928,76 +928,49 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         step={modal.step}
         currentUser={currentUser}
         onClose={() => setModal(null)}
-        onSave={(data) => {
-          const elapsed = modal.step.startedAt ? Math.max(0, Math.floor((Date.now() - new Date(modal.step.startedAt).getTime()) / 1_000)) : 0
-          if (data.decision === 'pass') {
-            const patchedQc: ProcessStep = {
-              ...modal.step,
-              qtyGood: modal.step.qtyGood + data.qty,
-              qtyReject: modal.step.qtyReject + data.reject,
-              activeSeconds: modal.step.activeSeconds + elapsed,
-              startedAt: undefined,
-              status: modal.step.qtyGood + data.qty + modal.step.qtyReject + data.reject >= modal.step.plannedQty ? 'completed' : 'ready',
-              inspectedQty: (modal.step.inspectedQty || 0) + data.qty + data.reject,
-              defectCategory: data.reject > 0 ? data.defectCategory : modal.step.defectCategory,
-              defectNote: data.note || modal.step.defectNote,
-              defectEvidence: data.evidence?.length ? [...(modal.step.defectEvidence || []), ...data.evidence] : modal.step.defectEvidence,
-              qualityRecordedAt: new Date().toISOString(),
-            }
-            let updated: WorkOrder = {
-              ...modal.workOrder,
-              steps: modal.workOrder.steps.map((step) => step.id === patchedQc.id ? patchedQc : step),
-              history: [makeHistory(currentUser, 'QC diputuskan · Lulus', `Lulus ${data.qty}, reject final ${data.reject}. ${data.note || ''}`), ...modal.workOrder.history],
-            }
-            if (data.reject > 0) {
-              const shortfall = makeShortfall(patchedQc, data.reject, 'qc_final_reject', data.note)
-              updated = {
-                ...updated,
-                shortfalls: [shortfall, ...(updated.shortfalls || [])],
-                history: [makeHistory(currentUser, 'Kekurangan akhir dari QC', `${data.reject} unit reject final. Admin / PPIC perlu memutuskan penggantian atau pengiriman kurang.`), ...updated.history],
-              }
-            }
-            applyOrderUpdate(updated, data.reject > 0 ? 'Keputusan QC disimpan. Reject final masuk kontrol kekurangan.' : 'Keputusan QC disimpan.')
-          } else {
-            const previous = [...modal.workOrder.steps].slice(0, modal.workOrder.steps.findIndex((step) => step.id === modal.step.id)).reverse().find((step) => step.station !== 'qc' && step.station !== 'packing')
-            const patchedQc: ProcessStep = {
-              ...modal.step,
-              qtyRework: modal.step.qtyRework + data.qty,
-              activeSeconds: modal.step.activeSeconds + elapsed,
-              startedAt: undefined,
-              status: modal.step.qtyGood + modal.step.qtyReject + modal.step.qtyRework + data.qty >= modal.step.plannedQty ? 'completed' : 'ready',
-              inspectedQty: (modal.step.inspectedQty || 0) + data.qty,
+        onSave={async (data) => {
+          const cap = Math.min(modal.step.plannedQty - getStepRecordedQty(modal.step), getAvailableInputCap(modal.workOrder, modal.step))
+          const total = data.decision === 'pass' ? data.qty + data.reject : data.qty
+          if (total <= 0) return showToast('Isi minimal satu jumlah QC.')
+          if (total > cap) return showToast(`Jumlah QC tidak boleh melebihi ${formatNumber(cap)} unit.`)
+
+          try {
+            await recordLiveQcDecision({
+              stepId: modal.step.id,
+              decision: data.decision,
+              qty: data.qty,
+              reject: data.reject,
+              location: modal.step.location || defaultLocationForStation(modal.step.station),
+              note: data.note,
               defectCategory: data.defectCategory,
-              defectNote: data.note,
-              defectEvidence: data.evidence?.length ? [...(modal.step.defectEvidence || []), ...data.evidence] : modal.step.defectEvidence,
-              qualityRecordedAt: new Date().toISOString(),
+            })
+
+            const liveOrders = await reloadWorkOrders()
+            const refreshedOrder = liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)
+            const refreshedStatus = refreshedOrder ? deriveOrderStatus(refreshedOrder) : null
+
+            if (refreshedOrder && ['done', 'closed'].includes(refreshedStatus || '')) {
+              setSelectedId(null)
+              setView('dashboard')
+              setModal({ type: 'finished-notice', workOrder: refreshedOrder })
+              showToast(`${refreshedOrder.code} selesai. Kembali ke dashboard.`)
+              return
             }
-            const reworkOutput = modal.step.inputs[0] || 'Produk siap QC'
-            const reworkStep = makeReworkStep(previous || modal.step, data.qty, reworkOutput)
-            const recheckStep: ProcessStep = {
-              ...modal.step,
-              id: createId('qc-recheck'),
-              sequence: 0,
-              name: `QC ulang · ${modal.step.name}`,
-              plannedQty: data.qty,
-              status: 'not_ready',
-              qtyGood: 0,
-              qtyRework: 0,
-              qtyReject: 0,
-              activeSeconds: 0,
-              startedAt: undefined,
-              holdReason: undefined,
-            }
-            const baseSteps = modal.workOrder.steps.map((step) => step.id === patchedQc.id ? patchedQc : step)
-            const updated: WorkOrder = {
-              ...modal.workOrder,
-              reworkCount: modal.workOrder.reworkCount + 1,
-              steps: insertAfterStep(baseSteps, patchedQc.id, [reworkStep, recheckStep]),
-              history: [makeHistory(currentUser, 'QC dikembalikan ke rework', `${data.qty} unit kembali ke ${reworkStep.name}, lalu wajib masuk QC ulang. ${data.note || ''}`), ...modal.workOrder.history],
-            }
-            applyOrderUpdate(updated, 'QC mengembalikan produk ke rework dan membuat tiket QC ulang.')
+
+            setSelectedId(refreshedOrder?.id || modal.workOrder.id)
+            showToast(
+              data.decision === 'rework'
+                ? 'Keputusan QC tersimpan. Qty rework tercatat di Supabase.'
+                : data.reject > 0
+                  ? (modal.workOrder.type === 'mts'
+                    ? 'Keputusan QC tersimpan. Reject produksi stok masuk catatan gudang, tanpa approval PPIC.'
+                    : 'Keputusan QC tersimpan. Reject pesanan customer masuk kontrol kekurangan.')
+                  : 'Keputusan QC tersimpan. Produk lolos QC siap ke proses berikutnya.',
+            )
+            setModal(null)
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : 'Keputusan QC tidak dapat disimpan.')
           }
-          setModal(null)
         }}
       /> : null}
 
