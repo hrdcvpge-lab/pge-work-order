@@ -91,6 +91,8 @@ export async function fetchLiveStaffDirectory(): Promise<StaffDirectoryMember[]>
       employeeNumber: employee.employee_code || undefined,
       kind: planner ? 'planner' : 'staff',
       isActive: employee.is_active,
+      accessMode: employee.access_mode,
+      profileId: employee.profile_id || undefined,
       allowedStations,
       defaultReportToUserId: reportTo,
       defaultWorkArea,

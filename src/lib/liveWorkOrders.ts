@@ -37,6 +37,10 @@ type DbStepRow = {
   input_wip_name: string | null
   output_wip_name: string | null
   planned_qty: number | string
+  qty_good: number | string | null
+  qty_rework: number | string | null
+  qty_reject: number | string | null
+  active_seconds: number | string | null
   status: DbStepStatus
   scheduled_date: string | null
   work_area: string | null
@@ -131,10 +135,10 @@ function mapStep(row: DbStepRow, stationsById: Map<string, DbStationRow>): Proce
     assignedUserId: executor?.employee_id || undefined,
     reportToUserId: reportTo?.employee_id || undefined,
     scheduledDate: row.scheduled_date || undefined,
-    qtyGood: 0,
-    qtyRework: 0,
-    qtyReject: 0,
-    activeSeconds: 0,
+    qtyGood: parseNumber(row.qty_good),
+    qtyRework: parseNumber(row.qty_rework),
+    qtyReject: parseNumber(row.qty_reject),
+    activeSeconds: parseNumber(row.active_seconds),
     startedAt: row.started_at || undefined,
     location: row.work_area || undefined,
     holdReason: row.hold_reason || undefined,
@@ -204,6 +208,10 @@ export async function fetchLiveWorkOrders(): Promise<WorkOrder[]> {
           input_wip_name,
           output_wip_name,
           planned_qty,
+          qty_good,
+          qty_rework,
+          qty_reject,
+          active_seconds,
           status,
           scheduled_date,
           work_area,
@@ -295,6 +303,46 @@ export async function scheduleLiveWorkOrder(input: ScheduleWorkOrderInput): Prom
         work_area: step.workArea,
         scheduled_date: step.scheduledDate,
       })),
+    },
+  })
+
+  if (error) throw new Error(error.message)
+}
+
+export type StartWorkOrderStepInput = {
+  stepId: string
+}
+
+export type RecordStepOutputInput = {
+  stepId: string
+  good: number
+  rework: number
+  reject: number
+  location: string
+  note: string
+}
+
+export async function startLiveWorkOrderStep(input: StartWorkOrderStepInput): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('start_work_order_step', {
+    target_step_id: input.stepId,
+  })
+
+  if (error) throw new Error(error.message)
+}
+
+export async function recordLiveWorkOrderStepOutput(input: RecordStepOutputInput): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('record_work_order_step_output', {
+    target_step_id: input.stepId,
+    payload: {
+      good_qty: input.good,
+      rework_qty: input.rework,
+      reject_qty: input.reject,
+      location: input.location || null,
+      note: input.note || null,
     },
   })
 
