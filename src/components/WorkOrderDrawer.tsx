@@ -326,10 +326,10 @@ export function WorkOrderDrawer({
           </div>
         </section>
 
-        <section className="drawer-section">
+        {workOrder.history.length ? <section className="drawer-section">
           <div className="section-heading"><div><p className="eyebrow">Riwayat</p><h3>Audit aktivitas WO</h3></div></div>
           <div className="history-list">{workOrder.history.map((item) => <article className="history-item" key={item.id}><span className="history-item__dot" /><div><b>{item.title}</b><p>{item.actor}{item.note ? ` · ${item.note}` : ''}</p></div><time>{formatDateTime(item.at)}</time></article>)}</div>
-        </section>
+        </section> : null}
         </div>
 
         <footer className="wo-detail-modal__footer">
