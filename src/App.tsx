@@ -24,6 +24,9 @@ import {
   getCurrentProcess,
   getOrderActiveSeconds,
   getPackingGood,
+  getFinalProcessStep,
+  isFinalStockInStep,
+  isFinalPackingStep,
   getProgress,
   getShortfallSummary,
   shortfallStatusLabels,
@@ -184,7 +187,7 @@ function readQualityEvidenceFile(file: File): Promise<QualityEvidence> {
   })
 }
 
-function buildSteps(template: string, qty: number, customRoute: string[]) {
+function buildSteps(template: string, qty: number, customRoute: string[], workOrderType: WorkOrderType = 'mto') {
   const step = (sequence: number, name: string, station: Station, inputs: string[], output: string): ProcessStep => ({
     id: createId('step'),
     sequence,
@@ -200,10 +203,14 @@ function buildSteps(template: string, qty: number, customRoute: string[]) {
     activeSeconds: 0,
   })
 
+  const finalStep = (sequence: number) => workOrderType === 'mts'
+    ? step(sequence, 'Masuk Gudang / Stok Tersedia', 'warehouse', ['Produk lolos QC'], 'Stok tersedia')
+    : step(sequence, 'Packing / Siap Kirim', 'packing', ['Produk lolos QC'], 'Produk siap kirim')
+
   const direct = [
     step(1, 'Buat produk', 'sewing', [], 'Produk siap QC'),
     step(2, 'QC akhir', 'qc', ['Produk siap QC'], 'Produk lolos QC'),
-    step(3, 'Packing', 'packing', ['Produk lolos QC'], 'Produk terpacking'),
+    finalStep(3),
   ]
 
   if (template === 'direct') return direct
@@ -213,7 +220,7 @@ function buildSteps(template: string, qty: number, customRoute: string[]) {
       step(2, 'Potong bahan', 'cutting', ['Bahan bergambar'], 'Bahan siap jahit'),
       step(3, 'Jahit / rakit produk', 'sewing', ['Bahan siap jahit'], 'Produk siap QC'),
       step(4, 'QC akhir', 'qc', ['Produk siap QC'], 'Produk lolos QC'),
-      step(5, 'Packing', 'packing', ['Produk lolos QC'], 'Produk terpacking'),
+      finalStep(5),
     ]
   }
   if (template === 'multi-part') {
@@ -225,7 +232,7 @@ function buildSteps(template: string, qty: number, customRoute: string[]) {
       step(5, 'Jahit / rakit produk', 'sewing', ['Panel potong', 'Set furing', 'Set resleting'], 'Produk siap finishing'),
       step(6, 'Finishing / rapikan', 'finishing', ['Produk siap finishing'], 'Produk siap QC'),
       step(7, 'QC akhir', 'qc', ['Produk siap QC'], 'Produk lolos QC'),
-      step(8, 'Packing', 'packing', ['Produk lolos QC'], 'Produk terpacking'),
+      finalStep(8),
     ]
   }
 
@@ -253,7 +260,7 @@ function buildSteps(template: string, qty: number, customRoute: string[]) {
 
   const beforeQc = customSteps.at(-1)?.output || 'Produk siap QC'
   customSteps.push(step(customSteps.length + 1, 'QC akhir', 'qc', [beforeQc], 'Produk lolos QC'))
-  customSteps.push(step(customSteps.length + 1, 'Packing', 'packing', ['Produk lolos QC'], 'Produk terpacking'))
+  customSteps.push(finalStep(customSteps.length + 1))
   return customSteps
 }
 
@@ -503,6 +510,21 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     setModal(nextModal)
   }
 
+  const isFinishedForNotice = (order: WorkOrder | null | undefined): order is WorkOrder => {
+    if (!order) return false
+    const status = deriveOrderStatus(order)
+    if (['done', 'closed'].includes(status)) return true
+    const finalStep = getFinalProcessStep(order)
+    const summary = getShortfallSummary(order)
+    return Boolean(
+      finalStep
+      && deriveStepStatus(order, finalStep) === 'completed'
+      && summary.remainingQty === 0
+      && summary.actionRequiredQty === 0
+      && summary.awaitingApprovalQty === 0,
+    )
+  }
+
   const beginStep = async (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
     const status = deriveStepStatus(order, step)
     if (status !== 'ready') return showToast('Proses belum siap. Periksa input proses atau HOLD terlebih dahulu.')
@@ -738,6 +760,8 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                   const current = getCurrentProcess(order)
                   const activeStep = order.steps.find((step) => deriveStepStatus(order, step) === 'in_progress')
                   const status = deriveOrderStatus(order)
+                  const shortfall = getShortfallSummary(order)
+                  const finalProgressLabel = order.type === 'mts' ? 'masuk gudang / reject tercatat' : 'siap kirim'
                   const showLiveIndicator = ['admin', 'ppic'].includes(currentUser.role) && Boolean(activeStep)
                   const indicatorStep = activeStep || current
                   return <tr className={`wo-table__row wo-table__row--station-${indicatorStep?.station || 'warehouse'}${showLiveIndicator ? ' wo-table__row--live-current' : ''}`} key={order.id} onClick={() => openOrder(order)}>
@@ -745,8 +769,8 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                     <td><Badge kind="type" value={order.type} /><small>{order.source}</small></td>
                     <td><b>{order.product}</b><small>{order.referenceNote || 'Tidak ada catatan referensi'}</small></td>
                     <td><b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b><Badge kind="priority" value={order.priority} /></td>
-                    <td><b>{getProgress(order)}%</b><small>{formatNumber(order.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyGood, 0))}/{formatNumber(order.qty)} terpacking</small></td>
-                    <td><Badge kind="status" value={status} />{getShortfallSummary(order).actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : getShortfallSummary(order).replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : null}{getBlockerSummary(order) ? <small className={getShortfallSummary(order).actionRequiredQty > 0 ? 'text-danger' : 'text-warning'}>{getBlockerSummary(order)}</small> : null}</td>
+                    <td><b>{getProgress(order)}%</b><small>{formatNumber(shortfall.packedGood + shortfall.approvedQty)}/{formatNumber(order.qty)} {finalProgressLabel}</small></td>
+                    <td><Badge kind="status" value={status} />{shortfall.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfall.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : null}{getBlockerSummary(order) ? <small className={shortfall.actionRequiredQty > 0 ? 'text-danger' : 'text-warning'}>{getBlockerSummary(order)}</small> : null}</td>
                     <td><b>{indicatorStep?.assignedUserId ? getDirectoryName(indicatorStep.assignedUserId, staffDirectory) : 'Belum ditetapkan'}</b><small>{indicatorStep ? <><Badge kind="station" value={indicatorStep.station} /> {indicatorStep.name}{showLiveIndicator ? <span className="current-process-indicator" title="Proses ini sedang berjalan">● Aktif sekarang</span> : null}</> : 'Belum ada proses aktif'}</small></td>
                     <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
@@ -837,7 +861,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
       {modal?.type === 'create' ? <CreateWorkOrderModal
         onClose={() => setModal(null)}
         onCreate={async (data) => {
-          const steps = buildSteps(data.template, data.qty, data.customRoute)
+          const steps = buildSteps(data.template, data.qty, data.customRoute, data.type)
           const created = await createLiveDraftWorkOrder({
             type: data.type,
             source: data.source,
@@ -933,18 +957,27 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             })
             const liveOrders = await reloadWorkOrders()
             const refreshedOrder = liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)
-            const refreshedStatus = refreshedOrder ? deriveOrderStatus(refreshedOrder) : null
+            const optimisticRecordedQty = getStepRecordedQty(modal.step) + total
+            const optimisticOrder = updateStep(modal.workOrder, modal.step.id, {
+              qtyGood: modal.step.qtyGood + data.good,
+              qtyRework: modal.step.qtyRework + data.rework,
+              qtyReject: modal.step.qtyReject + data.reject,
+              status: optimisticRecordedQty >= modal.step.plannedQty ? 'completed' : 'ready',
+              startedAt: optimisticRecordedQty >= modal.step.plannedQty ? undefined : modal.step.startedAt,
+              completedAt: optimisticRecordedQty >= modal.step.plannedQty ? new Date().toISOString() : modal.step.completedAt,
+            })
+            const finishedOrder = isFinishedForNotice(refreshedOrder) ? refreshedOrder : isFinishedForNotice(optimisticOrder) ? optimisticOrder : null
 
-            if (refreshedOrder && ['done', 'closed'].includes(refreshedStatus || '')) {
+            if (finishedOrder) {
               setSelectedId(null)
               setView('dashboard')
-              setModal({ type: 'finished-notice', workOrder: refreshedOrder })
-              showToast(`${refreshedOrder.code} selesai. Kembali ke dashboard.`)
+              setModal({ type: 'finished-notice', workOrder: finishedOrder })
+              showToast(`${finishedOrder.code} selesai. Kembali ke dashboard.`)
               return
             }
 
             setSelectedId(refreshedOrder?.id || modal.workOrder.id)
-            showToast(data.reject > 0 ? 'Hasil tersimpan. Reject tercatat dan akan masuk kontrol kekurangan berikutnya.' : 'Hasil proses tersimpan di Supabase.')
+            showToast(data.reject > 0 ? (modal.workOrder.type === 'mts' ? 'Hasil stok tersimpan. Reject / Grade B / Hold dicatat sebagai klasifikasi gudang.' : 'Hasil tersimpan. Reject tercatat dan akan masuk kontrol kekurangan berikutnya.') : 'Hasil proses tersimpan di Supabase.')
             setModal(null)
           } catch (error) {
             showToast(error instanceof Error ? error.message : 'Hasil proses tidak dapat disimpan.')
@@ -988,13 +1021,22 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
             const liveOrders = await reloadWorkOrders()
             const refreshedOrder = liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)
-            const refreshedStatus = refreshedOrder ? deriveOrderStatus(refreshedOrder) : null
+            const optimisticRecordedQty = getStepRecordedQty(modal.step) + total
+            const optimisticOrder = updateStep(modal.workOrder, modal.step.id, {
+              qtyGood: modal.step.qtyGood + (data.decision === 'pass' ? data.qty : 0),
+              qtyRework: modal.step.qtyRework + (data.decision === 'rework' ? data.qty : 0),
+              qtyReject: modal.step.qtyReject + (data.decision === 'pass' ? data.reject : 0),
+              status: optimisticRecordedQty >= modal.step.plannedQty ? 'completed' : 'ready',
+              startedAt: optimisticRecordedQty >= modal.step.plannedQty ? undefined : modal.step.startedAt,
+              completedAt: optimisticRecordedQty >= modal.step.plannedQty ? new Date().toISOString() : modal.step.completedAt,
+            })
+            const finishedOrder = isFinishedForNotice(refreshedOrder) ? refreshedOrder : isFinishedForNotice(optimisticOrder) ? optimisticOrder : null
 
-            if (refreshedOrder && ['done', 'closed'].includes(refreshedStatus || '')) {
+            if (finishedOrder) {
               setSelectedId(null)
               setView('dashboard')
-              setModal({ type: 'finished-notice', workOrder: refreshedOrder })
-              showToast(`${refreshedOrder.code} selesai. Kembali ke dashboard.`)
+              setModal({ type: 'finished-notice', workOrder: finishedOrder })
+              showToast(`${finishedOrder.code} selesai. Kembali ke dashboard.`)
               return
             }
 
@@ -1313,7 +1355,7 @@ function CreateWorkOrderModal({ onClose, onCreate }: { onClose: () => void; onCr
       </div>
       <div className="form-section-label">2. Pilih rute produksi</div>
       <div className="route-template-grid">{routeTemplates.map((item) => <button type="button" key={item.id} className={`route-template${template === item.id ? ' route-template--active' : ''}`} onClick={() => setTemplate(item.id)}><b>{item.title}</b><span>{item.description}</span></button>)}</div>
-      {template === 'custom' ? <div className="custom-route-builder"><div><b>Proses dipilih</b><span>QC akhir dan packing ditambahkan otomatis. Rute yang sudah punya hasil tidak dapat diubah setelah produksi dimulai.</span></div><div className="custom-route-options">{CUSTOM_OPTIONS.map((item) => <button type="button" key={item.id} className={customRoute.includes(item.id) ? 'is-active' : ''} onClick={() => toggleCustom(item.id)}>{customRoute.includes(item.id) ? '✓ ' : '+ '}{item.label}</button>)}</div></div> : null}
+      {template === 'custom' ? <div className="custom-route-builder"><div><b>Proses dipilih</b><span>QC akhir dan langkah final ditambahkan otomatis: Pesanan Customer menjadi Packing / Siap Kirim, Produksi Stok menjadi Masuk Gudang / Stok Tersedia. Rute yang sudah punya hasil tidak dapat diubah setelah produksi dimulai.</span></div><div className="custom-route-options">{CUSTOM_OPTIONS.map((item) => <button type="button" key={item.id} className={customRoute.includes(item.id) ? 'is-active' : ''} onClick={() => toggleCustom(item.id)}>{customRoute.includes(item.id) ? '✓ ' : '+ '}{item.label}</button>)}</div></div> : null}
       {hasPrintingRoute ? <label className="artwork-confirm__check artwork-control-option"><input type="checkbox" checked={artworkApprovalRequired} onChange={(event) => setArtworkApprovalRequired(event.target.checked)} /><span><b>Wajibkan approval artwork sebelum Printing</b><small>Opsional. Aktifkan hanya untuk motif custom, revisi desain, atau produk yang harus diverifikasi terhadap file final. Jika tidak dicentang, operator tetap bisa mulai cetak tanpa upload atau approval artwork.</small></span></label> : null}
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={isUploading || isSaving}>{isSaving ? 'Menyimpan ke Supabase…' : 'Buat draft WO'}</button></footer>
     </form>
@@ -1609,15 +1651,44 @@ function FinishedWorkOrderModal({ workOrder, onConfirm }: { workOrder: WorkOrder
 
 function LogResultModal({ workOrder, step, performerName, recordedByName, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; performerName: string; recordedByName: string; onClose: () => void; onSave: (data: { good: number; rework: number; reject: number; location: string; note: string }) => void }) {
   const cap = Math.min(step.plannedQty - getStepRecordedQty(step), getAvailableInputCap(workOrder, step))
+  const isPackingStep = isFinalPackingStep(workOrder, step)
+  const isStockInStep = isFinalStockInStep(workOrder, step)
   const [data, setData] = useState({ good: 0, rework: 0, reject: 0, location: step.location || '', note: '' })
   const total = data.good + data.rework + data.reject
-  return <Modal title="Catat hasil proses" subtitle="Timer akan otomatis dijeda ketika hasil dicatat. Total hasil tidak boleh melebihi target yang masih tersedia." onClose={onClose}>
+  const resultTitle = isStockInStep ? 'Catat Masuk Gudang / Stok Tersedia' : isPackingStep ? 'Catat Packing / Siap Kirim' : 'Catat hasil proses'
+  const resultSubtitle = isStockInStep
+    ? 'Gunakan layar ini untuk menutup proses stok: qty baik masuk gudang, qty hold/Grade B, dan scrap dicatat terpisah.'
+    : isPackingStep
+      ? 'Gunakan layar ini untuk menyatakan berapa unit sudah benar-benar terpacking dan siap dikirim.'
+      : 'Timer akan otomatis dijeda ketika hasil dicatat. Total hasil tidak boleh melebihi target yang masih tersedia.'
+  const goodLabel = isStockInStep ? 'Qty stok baik masuk gudang' : isPackingStep ? 'Qty siap kirim / terpacking' : 'Hasil baik'
+  const reworkLabel = isStockInStep ? 'Hold sortir / Grade B' : isPackingStep ? 'Perlu repacking' : 'Perlu rework'
+  const rejectLabel = isStockInStep ? 'Scrap / reject gudang' : isPackingStep ? 'Masalah packing / rusak' : 'Reject'
+  const locationLabel = isStockInStep ? 'Lokasi gudang hasil' : isPackingStep ? 'Lokasi siap kirim' : 'Lokasi hasil proses'
+  const noteLabel = isStockInStep ? 'Catatan masuk gudang' : isPackingStep ? 'Catatan packing' : 'Catatan hasil'
+  const notePlaceholder = isStockInStep
+    ? 'Contoh: 95 unit masuk Rak Stok A, 3 Grade B, 2 scrap karena noda bahan.'
+    : isPackingStep
+      ? 'Contoh: 100 unit sudah dipacking, label/resi siap, menunggu pickup marketplace.'
+      : 'Contoh: 50 panel baik masuk Rak proses Jahit; 2 potongan miring.'
+  const completionStatus = total <= 0
+    ? 'Belum ada hasil dicatat'
+    : total >= cap
+      ? (isStockInStep ? 'Stok selesai dicatat' : isPackingStep ? 'Packing selesai' : 'Proses selesai')
+      : (isStockInStep ? 'Stok masuk sebagian' : isPackingStep ? 'Packing sebagian' : 'Proses sebagian')
+  const updateQty = (field: 'good' | 'rework' | 'reject', value: string) => {
+    const cleaned = value.replace(/[^0-9]/g, '')
+    setData((current) => ({ ...current, [field]: cleaned ? Number(cleaned) : 0 }))
+  }
+
+  return <Modal title={resultTitle} subtitle={resultSubtitle} onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave(data) }}>
-      <div className="result-summary"><div><span>Batas dapat dicatat</span><b>{formatNumber(cap)}</b></div><div><span>Draft sekarang</span><b className={total > cap ? 'text-danger' : ''}>{formatNumber(total)}</b></div><div><span>Sisa target</span><b>{formatNumber(Math.max(0, cap - total))}</b></div></div>
+      <div className="result-summary"><div><span>Batas dapat dicatat</span><b>{formatNumber(cap)}</b></div><div><span>Draft sekarang</span><b className={total > cap ? 'text-danger' : ''}>{formatNumber(total)}</b></div><div><span>Status</span><b>{completionStatus}</b></div></div>
       <div className="assisted-progress-box"><Icon name="user" /><span><b>Pelaksana aktual:</b> {performerName}. <b>Dicatat oleh:</b> {recordedByName}.</span></div>
-      <div className="form-grid"><label><span>Hasil baik</span><input min="0" type="number" value={data.good} onChange={(event) => setData({ ...data, good: Number(event.target.value) })} /></label><label><span>Perlu rework</span><input min="0" type="number" value={data.rework} onChange={(event) => setData({ ...data, rework: Number(event.target.value) })} /></label><label><span>Reject</span><input min="0" type="number" value={data.reject} onChange={(event) => setData({ ...data, reject: Number(event.target.value) })} /></label><label><span>Lokasi hasil proses</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder="Rak barang proses / area berikutnya" /></label></div>
-      <label><span>Catatan hasil</span><textarea required value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder="Contoh: 50 panel baik masuk Rak proses Jahit; 2 potongan miring." /></label>
-      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={total <= 0 || total > cap}>Simpan hasil</button></footer>
+      {(isPackingStep || isStockInStep) ? <div className="callout callout--warning"><Icon name="warning" /><span><b>{isStockInStep ? 'Produksi Stok final bukan Packing.' : 'Packing final untuk Pesanan Customer.'}</b> {isStockInStep ? 'Hasil baik menjadi Stok Tersedia. Grade B / Hold Sortir / Scrap dicatat sebagai klasifikasi gudang, bukan approval short shipment.' : 'Yang dicatat adalah unit yang benar-benar siap dikirim, bukan hasil produksi umum.'}</span></div> : null}
+      <div className="form-grid"><label><span>{goodLabel}</span><input min="0" type="number" value={data.good} onChange={(event) => updateQty('good', event.target.value)} /></label><label><span>{reworkLabel}</span><input min="0" type="number" value={data.rework} onChange={(event) => updateQty('rework', event.target.value)} /></label><label><span>{rejectLabel}</span><input min="0" type="number" value={data.reject} onChange={(event) => updateQty('reject', event.target.value)} /></label><label><span>{locationLabel}</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder={isStockInStep ? 'Rak stok / gudang finish good' : isPackingStep ? 'Area siap kirim / staging marketplace' : 'Rak barang proses / area berikutnya'} /></label></div>
+      <label><span>{noteLabel}</span><textarea required value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder={notePlaceholder} /></label>
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={total <= 0 || total > cap}>{isStockInStep ? 'Simpan stok masuk' : isPackingStep ? 'Simpan packing' : 'Simpan hasil'}</button></footer>
     </form>
   </Modal>
 }
@@ -1784,7 +1855,7 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
   const finishedRows = filtered
     .filter((order) => ['done', 'closed'].includes(deriveOrderStatus(order)) || Boolean(order.isArchived))
     .map((order) => {
-      const finalStep = order.steps[order.steps.length - 1]
+      const finalStep = getFinalProcessStep(order)
       const finalGood = getPackingGood(order) || finalStep?.qtyGood || 0
       const rejectTotal = order.steps.reduce((sum, step) => sum + step.qtyReject, 0)
       const reworkTotal = order.steps.reduce((sum, step) => sum + step.qtyRework, 0)
@@ -1828,7 +1899,7 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
         <header><div><p className="eyebrow">{order.code} · {order.type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer'}</p><h3>{order.product}</h3><span>{order.source}</span></div><Badge kind="status" value={deriveOrderStatus(order)} /></header>
         <div className="finished-report-card__metrics">
           <div><span>Target</span><b>{formatNumber(order.qty)}</b></div>
-          <div><span>{order.type === 'mts' ? 'Good stock' : 'Siap kirim'}</span><b>{formatNumber(finalGood)}</b></div>
+          <div><span>{order.type === 'mts' ? 'Stok tersedia' : 'Siap kirim'}</span><b>{formatNumber(finalGood)}</b></div>
           <div><span>Reject</span><b className={rejectTotal ? 'text-danger' : ''}>{formatNumber(rejectTotal)}</b></div>
           <div><span>Rework</span><b>{formatNumber(reworkTotal)}</b></div>
           <div><span>Lead time</span><b>{leadTimeDays} hari</b></div>
