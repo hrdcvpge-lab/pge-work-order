@@ -769,8 +769,8 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                     <td><Badge kind="type" value={order.type} /><small>{order.source}</small></td>
                     <td><b>{order.product}</b><small>{order.referenceNote || 'Tidak ada catatan referensi'}</small></td>
                     <td><b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b><Badge kind="priority" value={order.priority} /></td>
-                    <td><b>{getProgress(order)}%</b><small>{formatNumber(shortfall.packedGood + shortfall.approvedQty)}/{formatNumber(order.qty)} {finalProgressLabel}</small></td>
-                    <td><Badge kind="status" value={status} />{shortfall.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfall.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : null}{getBlockerSummary(order) ? <small className={shortfall.actionRequiredQty > 0 ? 'text-danger' : 'text-warning'}>{getBlockerSummary(order)}</small> : null}</td>
+                    <td><div className="wo-progress-cell"><div className="wo-progress-cell__top"><b>{getProgress(order)}%</b><span>{formatNumber(shortfall.packedGood + shortfall.approvedQty)}/{formatNumber(order.qty)}</span></div><div className="wo-progress-bar" aria-hidden="true"><i style={{ width: `${getProgress(order)}%` }} /></div><small>{finalProgressLabel}</small></div></td>
+                    <td><div className="wo-status-cell"><Badge kind="status" value={status} />{shortfall.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfall.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : null}{getBlockerSummary(order) ? <small className={shortfall.actionRequiredQty > 0 ? 'text-danger' : 'text-warning'}>{getBlockerSummary(order)}</small> : <small>Tidak ada blocker</small>}</div></td>
                     <td><b>{indicatorStep?.assignedUserId ? getDirectoryName(indicatorStep.assignedUserId, staffDirectory) : 'Belum ditetapkan'}</b><small>{indicatorStep ? <><Badge kind="station" value={indicatorStep.station} /> {indicatorStep.name}{showLiveIndicator ? <span className="current-process-indicator" title="Proses ini sedang berjalan">● Aktif sekarang</span> : null}</> : 'Belum ada proses aktif'}</small></td>
                     <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
@@ -1516,7 +1516,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
   onClose: () => void
   onSave: (data: { machine: string; scheduledDate: string; steps: ProcessStep[] }) => Promise<void> | void
 }) {
-  const [machine, setMachine] = useState(workOrder.machine || 'Manual / tidak memakai mesin')
+  const machine = workOrder.machine || 'Manual / tidak memakai mesin'
   const [scheduledDate, setScheduledDate] = useState(workOrder.scheduledDate || new Date().toISOString().slice(0, 10))
   const [plannedSteps, setPlannedSteps] = useState<ProcessStep[]>(() => workOrder.steps.map((step) => ({
     ...step,
@@ -1559,9 +1559,8 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
       <div className="callout"><Icon name="calendar" /><span><b>{workOrder.code}</b> · Rute dan input proses sudah dibuat saat Draft. Di tahap ini, Admin / PPIC menetapkan siapa yang bekerja, melapor ke siapa, dan bekerja di area mana.</span></div>
       <div className="callout callout--warning"><Icon name="warning" /><span><b>Aturan aman:</b> urutan dan input proses dari template tidak diubah dari layar ini agar alur tidak putus. Ubah stasiun, PIC, pelaporan, dan lokasi hanya sebelum deploy; setelah proses mulai, struktur WO terkunci untuk audit.</span></div>
       {workOrder.artworkApprovalRequired && !artworkReadiness.ready ? <div className="callout callout--warning"><Icon name="image" /><span><b>Artwork belum siap untuk cetak.</b> {artworkReadiness.reason} WO tetap dapat dideploy, tetapi Printing akan terkunci sampai file final disetujui.</span></div> : null}
-      <div className="form-grid">
+      <div className="form-grid form-grid--schedule-date">
         <label><span>Tanggal jadwal</span><input type="date" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} /></label>
-        <label><span>Mesin / sumber daya utama</span><select value={machine} onChange={(event) => setMachine(event.target.value)}>{MACHINE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       </div>
       <section className="deployment-plan__section">
         <div><p className="eyebrow">Penugasan sebelum deploy</p><h3>Rute, PIC, pelaporan, dan area</h3><span>Semua pilihan menggunakan dropdown agar WO tetap konsisten dan mudah dibaca operator.</span></div>
@@ -1572,7 +1571,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
             <div className="deployment-step__process"><b>{step.name}</b><span>{step.inputs.length ? `Butuh: ${step.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {step.output}</span></div>
             <label><span>Tanggal rencana *</span><input type="date" value={step.scheduledDate || scheduledDate} onChange={(event) => updatePlan(step.id, { scheduledDate: event.target.value })} /></label>
             <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station, location: defaultLocationForStation(event.target.value as Station) })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-            <label><span>PIC pelaksana *</span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Hanya PIC yang dipilih yang dapat melihat dan menjalankan tiket ini. Jika daftar kosong, atur akses personel di menu People & Station.</small></label>
+            <label><span className="field-label-with-help">PIC pelaksana *<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Hanya PIC yang punya akses ke stasiun ini yang bisa dipilih. Atur akses personel di menu People & Station.</span></span></span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
             <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
             <label><span>Area kerja / laporan hasil *</span><select value={step.location || ''} onChange={(event) => updatePlan(step.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
           </article>)}
@@ -1591,7 +1590,7 @@ function AssignProcessModal({ workOrder, step, staffDirectory: directory, team, 
   return <Modal title="Atur PIC & jalur laporan" subtitle="Gunakan daftar Team PGE agar penugasan konsisten. Perubahan ini hanya boleh sebelum proses mempunyai hasil atau timer." onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ assignedUserId, reportToUserId, location }) }}>
       <div className="callout"><Icon name="station" /><span><b>{workOrder.code}</b> · {step.name} · {stationLabels[step.station]}</span></div>
-      <label><span>PIC pelaksana</span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select><small className="assignment-scope-note">Tiket proses hanya tampil pada akun PIC yang dipilih. Personel harus diaktifkan untuk stasiun ini di People & Station.</small></label>
+      <label><span className="field-label-with-help">PIC pelaksana<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Tiket proses hanya tampil pada akun PIC yang dipilih. Personel harus diaktifkan untuk stasiun ini di People & Station.</span></span></span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
       <label><span>Lapor ke</span><select required value={reportToUserId} onChange={(event) => setReportToUserId(event.target.value)}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
       <label><span>Area kerja / laporan hasil</span><select required value={location} onChange={(event) => setLocation(event.target.value)}><option value="">Pilih area</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Simpan penugasan</button></footer>
@@ -1654,6 +1653,7 @@ function LogResultModal({ workOrder, step, performerName, recordedByName, onClos
   const isPackingStep = isFinalPackingStep(workOrder, step)
   const isStockInStep = isFinalStockInStep(workOrder, step)
   const [data, setData] = useState({ good: 0, rework: 0, reject: 0, location: step.location || '', note: '' })
+  const [selectedNotes, setSelectedNotes] = useState<string[]>([])
   const total = data.good + data.rework + data.reject
   const resultTitle = isStockInStep ? 'Catat Masuk Gudang / Stok Tersedia' : isPackingStep ? 'Catat Packing / Siap Kirim' : 'Catat hasil proses'
   const resultSubtitle = isStockInStep
@@ -1667,10 +1667,19 @@ function LogResultModal({ workOrder, step, performerName, recordedByName, onClos
   const locationLabel = isStockInStep ? 'Lokasi gudang hasil' : isPackingStep ? 'Lokasi siap kirim' : 'Lokasi hasil proses'
   const noteLabel = isStockInStep ? 'Catatan masuk gudang' : isPackingStep ? 'Catatan packing' : 'Catatan hasil'
   const notePlaceholder = isStockInStep
-    ? 'Contoh: 95 unit masuk Rak Stok A, 3 Grade B, 2 scrap karena noda bahan.'
+    ? 'Opsional: tambah detail rak, kendala, atau instruksi follow-up.'
     : isPackingStep
-      ? 'Contoh: 100 unit sudah dipacking, label/resi siap, menunggu pickup marketplace.'
-      : 'Contoh: 50 panel baik masuk Rak proses Jahit; 2 potongan miring.'
+      ? 'Opsional: tambah detail label, kemasan, pickup, atau kendala packing.'
+      : 'Opsional: tambah detail rak proses, kendala, atau instruksi berikutnya.'
+  const quickNoteOptions = isStockInStep
+    ? ['Masuk gudang selesai', 'Masuk gudang sebagian', 'Stok baik diterima', 'Grade B dicatat', 'Hold sortir', 'Scrap / reject gudang', 'Lainnya']
+    : isPackingStep
+      ? ['Packing selesai', 'Packing sebagian', 'Kurang kemasan', 'Label / resi belum siap', 'Perlu repacking', 'Barang rusak saat packing', 'Lainnya']
+      : ['Selesai sesuai target', 'Selesai sebagian', 'Ada kendala bahan', 'Ada kendala alat', 'Perlu rework', 'Lainnya']
+  const toggleQuickNote = (option: string) => {
+    setSelectedNotes((current) => current.includes(option) ? current.filter((item) => item !== option) : [...current, option])
+  }
+  const buildSavedNote = () => [...selectedNotes, data.note.trim()].filter(Boolean).join(' · ')
   const completionStatus = total <= 0
     ? 'Belum ada hasil dicatat'
     : total >= cap
@@ -1682,12 +1691,12 @@ function LogResultModal({ workOrder, step, performerName, recordedByName, onClos
   }
 
   return <Modal title={resultTitle} subtitle={resultSubtitle} onClose={onClose}>
-    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave(data) }}>
+    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ ...data, note: buildSavedNote() }) }}>
       <div className="result-summary"><div><span>Batas dapat dicatat</span><b>{formatNumber(cap)}</b></div><div><span>Draft sekarang</span><b className={total > cap ? 'text-danger' : ''}>{formatNumber(total)}</b></div><div><span>Status</span><b>{completionStatus}</b></div></div>
       <div className="assisted-progress-box"><Icon name="user" /><span><b>Pelaksana aktual:</b> {performerName}. <b>Dicatat oleh:</b> {recordedByName}.</span></div>
       {(isPackingStep || isStockInStep) ? <div className="callout callout--warning"><Icon name="warning" /><span><b>{isStockInStep ? 'Produksi Stok final bukan Packing.' : 'Packing final untuk Pesanan Customer.'}</b> {isStockInStep ? 'Hasil baik menjadi Stok Tersedia. Grade B / Hold Sortir / Scrap dicatat sebagai klasifikasi gudang, bukan approval short shipment.' : 'Yang dicatat adalah unit yang benar-benar siap dikirim, bukan hasil produksi umum.'}</span></div> : null}
       <div className="form-grid"><label><span>{goodLabel}</span><input min="0" type="number" value={data.good} onChange={(event) => updateQty('good', event.target.value)} /></label><label><span>{reworkLabel}</span><input min="0" type="number" value={data.rework} onChange={(event) => updateQty('rework', event.target.value)} /></label><label><span>{rejectLabel}</span><input min="0" type="number" value={data.reject} onChange={(event) => updateQty('reject', event.target.value)} /></label><label><span>{locationLabel}</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder={isStockInStep ? 'Rak stok / gudang finish good' : isPackingStep ? 'Area siap kirim / staging marketplace' : 'Rak barang proses / area berikutnya'} /></label></div>
-      <label><span>{noteLabel}</span><textarea required value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder={notePlaceholder} /></label>
+      <div className="result-note-picker"><div className="result-note-picker__head"><span>{noteLabel}</span><small>Pilih catatan cepat. Catatan tambahan boleh dikosongkan.</small></div><div className="result-note-options">{quickNoteOptions.map((option) => <button type="button" key={option} className={selectedNotes.includes(option) ? 'is-selected' : ''} onClick={() => toggleQuickNote(option)}>{option}</button>)}</div><textarea value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder={notePlaceholder} /></div>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={total <= 0 || total > cap}>{isStockInStep ? 'Simpan stok masuk' : isPackingStep ? 'Simpan packing' : 'Simpan hasil'}</button></footer>
     </form>
   </Modal>
