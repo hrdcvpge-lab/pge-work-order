@@ -149,6 +149,11 @@ export function WorkOrderDrawer({
     ? workOrder.steps
     : workOrder.steps.filter((step) => step.assignedUserId === currentUser.id)
 
+  const closeDetail = () => {
+    setActiveArtwork(null)
+    onClose()
+  }
+
   return (
     <div className="drawer-layer wo-modal-layer" role="dialog" aria-modal="true" aria-label={`Detail ${workOrder.code}`}>
       <div className="drawer-layer__backdrop wo-modal-layer__backdrop" aria-hidden="true" />
@@ -159,9 +164,10 @@ export function WorkOrderDrawer({
             <h2>{workOrder.product}</h2>
             <p className="drawer-product">{typeLabelsForDrawer(workOrder.type)} · Target {formatNumber(workOrder.qty)} unit · Due {formatDate(workOrder.dueDate)}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Tutup detail"><Icon name="close" /></button>
+          <button className="icon-button" type="button" onClick={closeDetail} aria-label="Tutup detail"><Icon name="close" /></button>
         </header>
 
+        <div className="wo-detail-modal__body">
         <section className={`drawer-status-band drawer-status-band--station-${currentStation}${showLiveProcessIndicator ? ' drawer-status-band--live' : ''}`}>
           <div>
             <div className="drawer-status-band__topline"><Badge kind="status" value={status} /><Badge kind="priority" value={workOrder.priority} /><Badge kind="type" value={workOrder.type} />{currentStep ? <Badge kind="station" value={currentStep.station} /> : null}</div>
@@ -317,7 +323,12 @@ export function WorkOrderDrawer({
           <div className="section-heading"><div><p className="eyebrow">Riwayat</p><h3>Audit aktivitas WO</h3></div></div>
           <div className="history-list">{workOrder.history.map((item) => <article className="history-item" key={item.id}><span className="history-item__dot" /><div><b>{item.title}</b><p>{item.actor}{item.note ? ` · ${item.note}` : ''}</p></div><time>{formatDateTime(item.at)}</time></article>)}</div>
         </section>
-      <div className="wo-detail-modal__bottom"><button type="button" className="button button--secondary" onClick={onClose}>Tutup</button></div></aside>
+        </div>
+
+        <footer className="wo-detail-modal__bottom">
+          <button type="button" className="button button--secondary" onClick={closeDetail}>Tutup</button>
+        </footer>
+      </aside>
 
       {activeArtwork ? <div className="artwork-lightbox" role="dialog" aria-modal="true" aria-label="Preview artwork"><button className="artwork-lightbox__backdrop" onClick={() => setActiveArtwork(null)} aria-label="Tutup preview" /><figure><button type="button" className="icon-button" onClick={() => setActiveArtwork(null)} aria-label="Tutup preview"><Icon name="close" /></button><img src={activeArtwork.dataUrl} alt={activeArtwork.name} /><figcaption><span className={approvalClass(activeArtwork)}>{activeArtwork.isPrimary ? 'FINAL PRINT FILE · ' : ''}{artworkApprovalLabels[activeArtwork.approvalStatus]}</span><b>{activeArtwork.name} · {activeArtwork.version}</b><span>{activeArtwork.printNote || 'Tidak ada instruksi cetak tambahan.'}</span></figcaption></figure></div> : null}
     </div>
