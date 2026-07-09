@@ -111,6 +111,7 @@ export const processLabels: Record<ProcessStatus, string> = {
   in_progress: 'Sedang dikerjakan',
   waiting_wip: 'Menunggu input proses',
   hold: 'HOLD',
+  partial_paused: 'Sebagian selesai',
   completed: 'Selesai',
 }
 
@@ -145,6 +146,22 @@ export const formatDuration = (seconds: number) => {
 
 export const getStepRecordedQty = (step: ProcessStep) => step.qtyGood + step.qtyRework + step.qtyReject
 
+export const getStepExtraQty = (step: ProcessStep) => Math.max(0, step.qtyExtra || Math.max(0, step.qtyGood - step.plannedQty))
+
+export const getStepGradeBQty = (step: ProcessStep) => Math.max(0, step.qtyGradeB || 0)
+
+export const getStepHoldSortirQty = (step: ProcessStep) => Math.max(0, step.qtyHoldSortir || 0)
+
+export const getStepScrapQty = (step: ProcessStep) => Math.max(0, step.qtyScrap || 0)
+
+export const getStepPendingReworkQty = (step: ProcessStep) => Math.max(0, step.qtyPendingRework ?? step.qtyRework)
+
+export const getOrderPendingReworkQty = (workOrder: WorkOrder) =>
+  workOrder.steps.reduce((total, step) => total + getStepPendingReworkQty(step), 0)
+
+export const getStepResolvedQty = (step: ProcessStep) =>
+  step.qtyGood + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step)
+
 export const getStepTimerSeconds = (step: ProcessStep, clock = Date.now()) => {
   if (!step.startedAt) return step.activeSeconds
   const started = new Date(step.startedAt).getTime()
@@ -168,9 +185,11 @@ export const getPackingReject = (workOrder: WorkOrder) => getFinalProcessStep(wo
 export const getStockClassifiedQty = (workOrder: WorkOrder) => {
   if (workOrder.type !== 'mts') return 0
   const finalStep = getFinalProcessStep(workOrder)
-  const rejectQty = workOrder.steps.reduce((total, step) => total + step.qtyReject, 0)
-  const gradeOrHoldQty = finalStep?.qtyRework || 0
-  return rejectQty + gradeOrHoldQty
+  const processRejectQty = workOrder.steps.reduce((total, step) => total + step.qtyReject, 0)
+  const gradeBQty = finalStep ? getStepGradeBQty(finalStep) : 0
+  const holdSortirQty = finalStep ? getStepHoldSortirQty(finalStep) : 0
+  const scrapQty = finalStep ? getStepScrapQty(finalStep) : 0
+  return processRejectQty + gradeBQty + holdSortirQty + scrapQty
 }
 
 export const getStockRejectQty = getStockClassifiedQty
@@ -194,10 +213,13 @@ export const getShortfallSummary = (workOrder: WorkOrder) => {
   const replacementPlannedQty = shortfalls
     .filter((item) => item.status === 'replacement_planned')
     .reduce((total, item) => total + item.qty, 0)
+  const pendingReworkQty = getOrderPendingReworkQty(workOrder)
   const approvedQty = workOrder.type === 'mts'
     ? stockClassifiedQty
     : approvedShortShipmentQty + cancelledRemainingQty
-  const remainingQty = Math.max(0, workOrder.qty - packedGood - approvedQty)
+  const fulfilledQty = packedGood + approvedQty
+  const extraQty = Math.max(0, fulfilledQty - workOrder.qty)
+  const remainingQty = Math.max(0, workOrder.qty - fulfilledQty)
   const replacementRemainingQty = remainingQty > 0 ? Math.min(replacementPlannedQty, remainingQty) : 0
   const requiresActionQty = workOrder.type === 'mts'
     ? 0
@@ -215,9 +237,11 @@ export const getShortfallSummary = (workOrder: WorkOrder) => {
     awaitingApprovalQty: workOrder.type === 'mts' ? 0 : awaitingApprovalQty,
     replacementPlannedQty,
     replacementRemainingQty,
+    pendingReworkQty,
+    extraQty,
     remainingQty,
     requiresActionQty,
-    isFulfilled: remainingQty === 0 && (workOrder.type === 'mts' || actionRequiredQty === 0),
+    isFulfilled: remainingQty === 0 && pendingReworkQty === 0 && (workOrder.type === 'mts' || actionRequiredQty === 0),
   }
 }
 
@@ -228,6 +252,9 @@ export const getCloseReadiness = (workOrder: WorkOrder) => {
   }
   if (summary.awaitingApprovalQty > 0) {
     return { ready: false, reason: `${formatNumber(summary.awaitingApprovalQty)} unit masih menunggu persetujuan Manager / Owner.` }
+  }
+  if (summary.pendingReworkQty > 0) {
+    return { ready: false, reason: `${formatNumber(summary.pendingReworkQty)} unit masih pending rework. Selesaikan rework atau klasifikasikan sebelum WO ditutup.` }
   }
   if (summary.remainingQty > 0) {
     return { ready: false, reason: workOrder.type === 'mts'
@@ -256,13 +283,14 @@ export const getAvailableInputCap = (workOrder: WorkOrder, step: ProcessStep) =>
   return Math.min(...step.inputs.map((input) => getWipBalance(workOrder, input)))
 }
 
-export const getStepRemaining = (step: ProcessStep) => Math.max(0, step.plannedQty - getStepRecordedQty(step))
+export const getStepRemaining = (step: ProcessStep) => Math.max(0, step.plannedQty - getStepResolvedQty(step))
 
 export const deriveStepStatus = (workOrder: WorkOrder, step: ProcessStep): ProcessStatus => {
   if (['draft', 'closed', 'cancelled'].includes(workOrder.status)) return 'not_ready'
   if (step.holdReason) return 'hold'
-  if (getStepRecordedQty(step) >= step.plannedQty) return 'completed'
   if (step.status === 'in_progress') return 'in_progress'
+  if (getStepResolvedQty(step) >= step.plannedQty && getStepPendingReworkQty(step) === 0) return 'completed'
+  if (getStepRecordedQty(step) > 0 && getStepRecordedQty(step) < step.plannedQty) return 'partial_paused'
 
   const inputCap = getAvailableInputCap(workOrder, step)
   if (inputCap === 0) return step.inputs.length ? 'waiting_wip' : 'ready'
@@ -272,7 +300,7 @@ export const deriveStepStatus = (workOrder: WorkOrder, step: ProcessStep): Proce
 export const getCurrentProcess = (workOrder: WorkOrder) => {
   const running = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
   if (running) return running
-  const ready = workOrder.steps.find((step) => ['ready', 'waiting_wip'].includes(deriveStepStatus(workOrder, step)))
+  const ready = workOrder.steps.find((step) => ['ready', 'waiting_wip', 'partial_paused'].includes(deriveStepStatus(workOrder, step)))
   return ready
 }
 
