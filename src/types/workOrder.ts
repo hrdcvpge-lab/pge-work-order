@@ -190,6 +190,11 @@ export interface WorkOrder {
   reworkCount: number
   createdAt: string
   createdBy: string
+  closedAt?: string
+  closedBy?: string
+  isArchived?: boolean
+  archivedAt?: string
+  archivedBy?: string
   steps: ProcessStep[]
   /** Reject/shortfall decisions remain visible until recovery, approval, or cancellation. */
   shortfalls?: WorkOrderShortfall[]
