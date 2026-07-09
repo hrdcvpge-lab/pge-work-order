@@ -28,6 +28,7 @@ import {
   getShortfallSummary,
   shortfallStatusLabels,
   getStepRecordedQty,
+  getStepTimerSeconds,
   getWipBalance,
   isOverdue,
   priorityLabels,
