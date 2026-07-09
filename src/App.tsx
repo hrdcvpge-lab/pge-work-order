@@ -27,6 +27,7 @@ import {
   getFinalProcessStep,
   isFinalStockInStep,
   isFinalPackingStep,
+  isWorkOrderFulfilled,
   getProgress,
   getShortfallSummary,
   shortfallStatusLabels,
@@ -520,19 +521,22 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   const isFinishedForNotice = (order: WorkOrder | null | undefined): order is WorkOrder => {
     if (!order) return false
     const status = deriveOrderStatus(order)
-    if (['done', 'closed'].includes(status)) return true
+    if (['done', 'closed'].includes(status) || isWorkOrderFulfilled(order)) return true
     const finalStep = getFinalProcessStep(order)
     const summary = getShortfallSummary(order)
     return Boolean(
       finalStep
       && deriveStepStatus(order, finalStep) === 'completed'
       && summary.remainingQty === 0
+      && summary.pendingReworkQty === 0
       && summary.actionRequiredQty === 0
       && summary.awaitingApprovalQty === 0,
     )
   }
 
   const beginStep = async (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
+    if (isWorkOrderFulfilled(order) || deriveOrderStatus(order) === 'done') return showToast('WO sudah terpenuhi. Proses lama dikunci agar tidak terjadi input ganda.')
+
     const pendingReworkQty = getShortfallSummary(order).pendingReworkQty
     if (pendingReworkQty > 0) return showToast(`${formatNumber(pendingReworkQty)} unit masih pending rework. Selesaikan rework dulu, jangan mulai proses lama.`)
 
