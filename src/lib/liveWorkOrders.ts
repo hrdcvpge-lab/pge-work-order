@@ -17,6 +17,11 @@ type DbWorkOrderRow = {
   due_date: string
   priority: Priority
   status: WorkOrderStatus
+  closed_at: string | null
+  closed_by: string | null
+  is_archived: boolean | null
+  archived_at: string | null
+  archived_by: string | null
   scheduled_date: string | null
   created_at: string
   created_by: string
@@ -164,6 +169,11 @@ function mapWorkOrder(row: DbWorkOrderRow, stationsById: Map<string, DbStationRo
     routeTemplateId: undefined,
     customRoute: [],
     status: row.status,
+    closedAt: row.closed_at || undefined,
+    closedBy: row.closed_by || undefined,
+    isArchived: Boolean(row.is_archived),
+    archivedAt: row.archived_at || undefined,
+    archivedBy: row.archived_by || undefined,
     reworkCount: 0,
     createdAt: row.created_at,
     createdBy: row.created_by,
@@ -197,6 +207,11 @@ export async function fetchLiveWorkOrders(): Promise<WorkOrder[]> {
         due_date,
         priority,
         status,
+        closed_at,
+        closed_by,
+        is_archived,
+        archived_at,
+        archived_by,
         scheduled_date,
         created_at,
         created_by,
@@ -380,6 +395,26 @@ export async function recordLiveQcDecision(input: RecordQcDecisionInput): Promis
       note: input.note || null,
       defect_category: defectCategoryToDb[input.defectCategory] || input.defectCategory || 'other',
     },
+  })
+
+  if (error) throw new Error(error.message)
+}
+
+export async function closeLiveWorkOrder(workOrderId: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('close_work_order', {
+    target_work_order_id: workOrderId,
+  })
+
+  if (error) throw new Error(error.message)
+}
+
+export async function archiveLiveWorkOrder(workOrderId: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('archive_work_order', {
+    target_work_order_id: workOrderId,
   })
 
   if (error) throw new Error(error.message)
