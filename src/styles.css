@@ -1191,3 +1191,242 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* v0.4.9.1 — hard fix WO detail modal layout
+   Reason: the old drawer CSS still gave .drawer-layer two grid columns and .wo-drawer grid-column:2.
+   That pushed the new modal to the right and let wide content disappear off-screen. */
+.wo-modal-layer.drawer-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.wo-modal-layer .drawer-layer__backdrop,
+.wo-modal-layer__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: rgba(18, 22, 28, 0.62);
+  backdrop-filter: blur(6px);
+  cursor: default;
+}
+
+.wo-modal-layer .wo-drawer.wo-detail-modal {
+  position: relative !important;
+  inset: auto !important;
+  z-index: 1;
+  grid-column: auto !important;
+  grid-row: auto !important;
+  width: min(1080px, calc(100vw - 48px)) !important;
+  max-width: 1080px;
+  height: min(88vh, 920px);
+  min-width: 0;
+  min-height: 0 !important;
+  max-height: calc(100vh - 48px);
+  margin: 0 auto;
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 34px 110px rgba(18, 22, 28, 0.36);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.wo-modal-layer .wo-detail-modal *,
+.wo-modal-layer .wo-detail-modal *::before,
+.wo-modal-layer .wo-detail-modal *::after {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.wo-detail-modal .wo-drawer__header {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(135, 23, 25, 0.08);
+}
+
+.wo-detail-modal .wo-drawer__header > div,
+.wo-detail-modal .drawer-status-band > div,
+.wo-detail-modal .drawer-section,
+.wo-detail-modal .section-heading,
+.wo-detail-modal .section-heading__actions,
+.wo-detail-modal .process-ticket,
+.wo-detail-modal .route-card,
+.wo-detail-modal .shortfall-row,
+.wo-detail-modal .history-item {
+  min-width: 0;
+}
+
+.wo-detail-modal .drawer-status-band,
+.wo-detail-modal .section-heading,
+.wo-detail-modal .shortfall-row,
+.wo-detail-modal .history-item,
+.wo-detail-modal .process-ticket header,
+.wo-detail-modal .process-ticket__footer {
+  flex-wrap: wrap;
+}
+
+.wo-detail-modal .drawer-status-band {
+  align-items: stretch;
+}
+
+.wo-detail-modal .drawer-progress-number {
+  flex: 0 1 180px;
+  min-width: 0;
+}
+
+.wo-detail-modal .drawer-progress-number span {
+  white-space: normal;
+}
+
+.wo-detail-modal .current-action-panel {
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 260px);
+}
+
+.wo-detail-modal .detail-grid--four,
+.wo-detail-modal .shortfall-metric-grid,
+.wo-detail-modal .process-ticket__metrics,
+.wo-detail-modal .process-ticket__meta-grid,
+.wo-detail-modal .process-ticket__input-panel {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.wo-detail-modal .route-flow {
+  display: grid !important;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
+  margin-top: 15px;
+  overflow: visible !important;
+  padding-bottom: 0;
+}
+
+.wo-detail-modal .route-flow__group {
+  display: grid !important;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.wo-detail-modal .route-flow__group:first-child {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wo-detail-modal .route-flow__arrow {
+  justify-self: center;
+  transform: rotate(90deg);
+  opacity: 0.45;
+}
+
+.wo-detail-modal .route-card {
+  width: 100%;
+  min-width: 0 !important;
+}
+
+.wo-detail-modal .section-heading__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wo-detail-modal .process-ticket__actions {
+  min-width: 0;
+}
+
+.wo-detail-modal .process-ticket__actions .button,
+.wo-detail-modal .section-heading__actions .button,
+.wo-detail-modal__bottom .button {
+  flex: 0 1 auto;
+  white-space: normal;
+}
+
+.wo-detail-modal__bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  padding: 14px 22px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.97);
+  border-top: 1px solid rgba(135, 23, 25, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.wo-detail-modal h2,
+.wo-detail-modal h3,
+.wo-detail-modal h4,
+.wo-detail-modal p,
+.wo-detail-modal span,
+.wo-detail-modal small,
+.wo-detail-modal b,
+.wo-detail-modal em {
+  overflow-wrap: anywhere;
+}
+
+html,
+body,
+#root {
+  overflow-x: hidden;
+}
+
+@media (max-width: 780px) {
+  .wo-modal-layer.drawer-layer {
+    padding: 8px;
+    align-items: stretch;
+  }
+
+  .wo-modal-layer .wo-drawer.wo-detail-modal {
+    width: 100% !important;
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: 18px;
+  }
+
+  .wo-detail-modal .wo-drawer__header,
+  .wo-detail-modal .drawer-section,
+  .wo-detail-modal .drawer-status-band,
+  .wo-detail-modal__bottom {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .wo-detail-modal .current-action-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .wo-detail-modal .detail-grid--four,
+  .wo-detail-modal .shortfall-metric-grid,
+  .wo-detail-modal .process-ticket__metrics,
+  .wo-detail-modal .process-ticket__meta-grid,
+  .wo-detail-modal .process-ticket__input-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .wo-detail-modal .section-heading__actions,
+  .wo-detail-modal .process-ticket__actions,
+  .wo-detail-modal__bottom {
+    justify-content: stretch;
+  }
+
+  .wo-detail-modal .section-heading__actions .button,
+  .wo-detail-modal .process-ticket__actions .button,
+  .wo-detail-modal__bottom .button {
+    width: 100%;
+  }
+}
