@@ -154,6 +154,14 @@ export function WorkOrderDrawer({
     onClose()
   }
 
+  const actionButtons = <>
+    {['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="button button--primary" onClick={onSchedule}>Rencanakan & deploy WO</button> : null}
+    {currentUser.role === 'admin' && status === 'draft' ? <button className="button button--danger-soft" onClick={onCancel}>Batalkan Draft</button> : null}
+    {currentUser.role === 'ppic' && status === 'done' ? <button className="button button--primary" onClick={onCloseOrder}>Close WO</button> : null}
+    {currentUser.role === 'ppic' && status === 'closed' && !workOrder.isArchived ? <button className="button button--secondary" onClick={onArchiveOrder}>Archive WO</button> : null}
+    {currentUser.role === 'manager' ? <span className="read-only-note">Mode manager: hanya melihat laporan dan histori.</span> : null}
+  </>
+
   return (
     <div className="drawer-layer wo-modal-layer" role="dialog" aria-modal="true" aria-label={`Detail ${workOrder.code}`}>
       <div className="drawer-layer__backdrop wo-modal-layer__backdrop" aria-hidden="true" />
@@ -245,14 +253,6 @@ export function WorkOrderDrawer({
           </> : !artworkApprovalRequired ? <div className="artwork-missing"><Icon name="image" /><span><b>Tidak ada gambar artwork.</b> Tidak masalah—artwork tidak diwajibkan untuk WO ini. Tambahkan file hanya bila motif perlu menjadi acuan operator.</span></div> : null}
         </section>
 
-        <section className="drawer-section drawer-section--actions">
-          {['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="button button--primary" onClick={onSchedule}>Rencanakan & deploy WO</button> : null}
-          {currentUser.role === 'admin' && status === 'draft' ? <button className="button button--danger-soft" onClick={onCancel}>Batalkan Draft</button> : null}
-          {currentUser.role === 'ppic' && status === 'done' ? <button className="button button--primary" onClick={onCloseOrder}>Close WO</button> : null}
-          {currentUser.role === 'ppic' && status === 'closed' && !workOrder.isArchived ? <button className="button button--secondary" onClick={onArchiveOrder}>Archive WO</button> : null}
-          {currentUser.role === 'manager' ? <span className="read-only-note">Mode manager: hanya melihat laporan dan histori.</span> : null}
-        </section>
-
         <section className="drawer-section">
           <div className="section-heading"><div><p className="eyebrow">Alur proses</p><h3>Rute, input proses, dan PIC aktual</h3></div><span>{workOrder.steps.length} proses</span></div>
           <div className="route-flow">
@@ -325,7 +325,8 @@ export function WorkOrderDrawer({
         </section>
         </div>
 
-        <footer className="wo-detail-modal__bottom">
+        <footer className="wo-detail-modal__footer">
+          <div className="wo-detail-modal__footer-actions">{actionButtons}</div>
           <button type="button" className="button button--secondary" onClick={closeDetail}>Tutup</button>
         </footer>
       </aside>
