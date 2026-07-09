@@ -298,6 +298,7 @@ export const deriveStepStatus = (workOrder: WorkOrder, step: ProcessStep): Proce
 }
 
 export const getCurrentProcess = (workOrder: WorkOrder) => {
+  if (getOrderPendingReworkQty(workOrder) > 0) return undefined
   const running = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
   if (running) return running
   const ready = workOrder.steps.find((step) => ['ready', 'waiting_wip', 'partial_paused'].includes(deriveStepStatus(workOrder, step)))
@@ -333,6 +334,7 @@ export const isOverdue = (workOrder: WorkOrder) => {
 
 export const getBlockerSummary = (workOrder: WorkOrder) => {
   const shortfall = getShortfallSummary(workOrder)
+  if (shortfall.pendingReworkQty > 0) return `Pending rework ${formatNumber(shortfall.pendingReworkQty)} unit · perlu diselesaikan`
   if (shortfall.actionRequiredQty > 0) return `Kekurangan ${formatNumber(shortfall.actionRequiredQty)} unit · butuh keputusan`
   if (shortfall.awaitingApprovalQty > 0) return `Kekurangan ${formatNumber(shortfall.awaitingApprovalQty)} unit · menunggu persetujuan`
   if (shortfall.replacementRemainingQty > 0) return `Penggantian ${formatNumber(shortfall.replacementRemainingQty)} unit berjalan`
