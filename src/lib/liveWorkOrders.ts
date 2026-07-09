@@ -418,6 +418,35 @@ export async function recordLiveWorkOrderStepOutput(input: RecordStepOutputInput
   if (error) throw new Error(error.message)
 }
 
+
+export type ResolvePendingReworkInput = {
+  workOrderId: string
+  good: number
+  gradeB: number
+  holdSortir: number
+  scrap: number
+  location: string
+  note: string
+}
+
+export async function resolveLivePendingRework(input: ResolvePendingReworkInput): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('resolve_work_order_pending_rework', {
+    target_work_order_id: input.workOrderId,
+    payload: {
+      good_qty: input.good,
+      grade_b_qty: input.gradeB,
+      hold_sortir_qty: input.holdSortir,
+      scrap_qty: input.scrap,
+      location: input.location || null,
+      note: input.note || null,
+    },
+  })
+
+  if (error) throw new Error(error.message)
+}
+
 export type RecordQcDecisionInput = {
   stepId: string
   decision: 'pass' | 'rework'
