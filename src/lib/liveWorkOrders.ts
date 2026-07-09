@@ -145,6 +145,7 @@ function mapStep(row: DbStepRow, stationsById: Map<string, DbStationRow>): Proce
     qtyReject: parseNumber(row.qty_reject),
     activeSeconds: parseNumber(row.active_seconds),
     startedAt: row.started_at || undefined,
+    completedAt: row.completed_at || undefined,
     location: row.work_area || undefined,
     holdReason: row.hold_reason || undefined,
   }
