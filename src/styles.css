@@ -1192,241 +1192,213 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
   }
 }
 
-/* v0.4.9.1 — hard fix WO detail modal layout
-   Reason: the old drawer CSS still gave .drawer-layer two grid columns and .wo-drawer grid-column:2.
-   That pushed the new modal to the right and let wide content disappear off-screen. */
-.wo-modal-layer.drawer-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  grid-template-columns: none !important;
-  grid-template-rows: none !important;
+
+/* v0.4.9.2 — WO modal close + readable process card layout */
+.wo-modal-layer {
+  z-index: 80;
+  display: grid;
+  place-items: center;
   padding: 24px;
   overflow: hidden;
 }
 
-.wo-modal-layer .drawer-layer__backdrop,
-.wo-modal-layer__backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: rgba(18, 22, 28, 0.62);
-  backdrop-filter: blur(6px);
-  cursor: default;
-}
-
-.wo-modal-layer .wo-drawer.wo-detail-modal {
-  position: relative !important;
-  inset: auto !important;
-  z-index: 1;
-  grid-column: auto !important;
-  grid-row: auto !important;
-  width: min(1080px, calc(100vw - 48px)) !important;
+.wo-detail-modal,
+.wo-modal-layer .wo-drawer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, calc(100vw - 48px));
   max-width: 1080px;
-  height: min(88vh, 920px);
-  min-width: 0;
-  min-height: 0 !important;
+  height: min(88vh, 900px);
   max-height: calc(100vh - 48px);
-  margin: 0 auto;
+  min-height: 0;
+  overflow: hidden;
   border-radius: 28px;
   background: #fff;
-  box-shadow: 0 34px 110px rgba(18, 22, 28, 0.36);
+}
+
+.wo-detail-modal .wo-drawer__header {
+  position: relative;
+  top: auto;
+  flex: 0 0 auto;
+  z-index: 6;
+  padding: 20px 22px 16px;
+}
+
+.wo-detail-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
-.wo-modal-layer .wo-detail-modal *,
-.wo-modal-layer .wo-detail-modal *::before,
-.wo-modal-layer .wo-detail-modal *::after {
-  box-sizing: border-box;
-  max-width: 100%;
+.wo-detail-modal__body > .drawer-section,
+.wo-detail-modal__body > .drawer-status-band {
+  padding-left: 22px;
+  padding-right: 22px;
 }
 
-.wo-detail-modal .wo-drawer__header {
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  background: rgba(255, 255, 255, 0.97);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(135, 23, 25, 0.08);
+.wo-detail-modal .drawer-section--actions {
+  position: static;
+  bottom: auto;
+  z-index: auto;
+  margin-bottom: 0;
+  justify-content: flex-end;
+  background: #fff;
+  border-top: 0;
 }
 
-.wo-detail-modal .wo-drawer__header > div,
-.wo-detail-modal .drawer-status-band > div,
-.wo-detail-modal .drawer-section,
-.wo-detail-modal .section-heading,
-.wo-detail-modal .section-heading__actions,
-.wo-detail-modal .process-ticket,
-.wo-detail-modal .route-card,
-.wo-detail-modal .shortfall-row,
-.wo-detail-modal .history-item {
-  min-width: 0;
-}
-
-.wo-detail-modal .drawer-status-band,
-.wo-detail-modal .section-heading,
-.wo-detail-modal .shortfall-row,
-.wo-detail-modal .history-item,
-.wo-detail-modal .process-ticket header,
-.wo-detail-modal .process-ticket__footer {
-  flex-wrap: wrap;
-}
-
-.wo-detail-modal .drawer-status-band {
-  align-items: stretch;
-}
-
-.wo-detail-modal .drawer-progress-number {
-  flex: 0 1 180px;
-  min-width: 0;
-}
-
-.wo-detail-modal .drawer-progress-number span {
-  white-space: normal;
-}
-
-.wo-detail-modal .current-action-panel {
-  grid-template-columns: minmax(0, 1fr) minmax(170px, 260px);
-}
-
-.wo-detail-modal .detail-grid--four,
-.wo-detail-modal .shortfall-metric-grid,
-.wo-detail-modal .process-ticket__metrics,
-.wo-detail-modal .process-ticket__meta-grid,
-.wo-detail-modal .process-ticket__input-panel {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+.wo-detail-modal__bottom {
+  position: relative;
+  bottom: auto;
+  flex: 0 0 auto;
+  z-index: 7;
+  padding: 14px 22px;
+  display: flex;
+  justify-content: flex-end;
+  background: #fff;
+  border-top: 1px solid rgba(135, 23, 25, 0.1);
+  box-shadow: 0 -10px 24px rgba(15, 23, 42, 0.05);
 }
 
 .wo-detail-modal .route-flow {
-  display: grid !important;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  width: 100%;
-  margin-top: 15px;
-  overflow: visible !important;
-  padding-bottom: 0;
+  display: grid;
+  gap: 10px;
+  overflow: visible;
+  margin-top: 14px;
+  padding: 0;
 }
 
 .wo-detail-modal .route-flow__group {
-  display: grid !important;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  width: 100%;
+  position: relative;
+  display: block;
+  padding-left: 28px;
 }
 
 .wo-detail-modal .route-flow__group:first-child {
-  grid-template-columns: minmax(0, 1fr);
+  padding-left: 0;
 }
 
 .wo-detail-modal .route-flow__arrow {
-  justify-self: center;
-  transform: rotate(90deg);
-  opacity: 0.45;
+  display: none;
+}
+
+.wo-detail-modal .route-flow__group:not(:first-child)::before {
+  content: "↓";
+  position: absolute;
+  left: 6px;
+  top: 18px;
+  color: #b8b8b2;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .wo-detail-modal .route-card {
   width: 100%;
-  min-width: 0 !important;
-}
-
-.wo-detail-modal .section-heading__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.wo-detail-modal .process-ticket__actions {
   min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "seq title badges"
+    "seq station badges";
+  align-items: center;
+  gap: 3px 12px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-left: 5px solid #b45309;
+  border-top-width: 1px;
+  border-radius: 12px;
+  transform: none;
 }
 
-.wo-detail-modal .process-ticket__actions .button,
-.wo-detail-modal .section-heading__actions .button,
-.wo-detail-modal__bottom .button {
-  flex: 0 1 auto;
-  white-space: normal;
+.wo-detail-modal .route-card > span {
+  grid-area: seq;
+  font-size: 10px;
 }
 
-.wo-detail-modal__bottom {
-  position: sticky;
-  bottom: 0;
-  z-index: 8;
-  padding: 14px 22px;
-  display: flex;
+.wo-detail-modal .route-card b {
+  grid-area: title;
+  font-size: 13px;
+}
+
+.wo-detail-modal .route-card small {
+  grid-area: station;
+  font-size: 10px;
+}
+
+.wo-detail-modal .route-card__badges {
+  grid-area: badges;
   justify-content: flex-end;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.97);
-  border-top: 1px solid rgba(135, 23, 25, 0.08);
-  backdrop-filter: blur(12px);
+  margin-top: 0;
 }
 
-.wo-detail-modal h2,
-.wo-detail-modal h3,
-.wo-detail-modal h4,
-.wo-detail-modal p,
-.wo-detail-modal span,
-.wo-detail-modal small,
-.wo-detail-modal b,
-.wo-detail-modal em {
-  overflow-wrap: anywhere;
+.wo-detail-modal .route-card--station-printing { border-left-color: #2563eb; }
+.wo-detail-modal .route-card--station-cutting { border-left-color: #ea580c; }
+.wo-detail-modal .route-card--station-sewing { border-left-color: #7c3aed; }
+.wo-detail-modal .route-card--station-finishing { border-left-color: #db2777; }
+.wo-detail-modal .route-card--station-qc { border-left-color: #059669; }
+.wo-detail-modal .route-card--station-packing { border-left-color: #65a30d; }
+.wo-detail-modal .route-card--station-warehouse { border-left-color: #b45309; }
+
+.wo-detail-modal .process-ticket {
+  border-left-width: 5px;
+  border-radius: 12px;
 }
 
-html,
-body,
-#root {
-  overflow-x: hidden;
+.wo-detail-modal .process-ticket header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.wo-detail-modal .process-ticket__input-panel {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.wo-detail-modal .process-ticket__footer {
+  justify-content: flex-end;
 }
 
 @media (max-width: 780px) {
-  .wo-modal-layer.drawer-layer {
-    padding: 8px;
-    align-items: stretch;
+  .wo-modal-layer {
+    padding: 0;
   }
 
-  .wo-modal-layer .wo-drawer.wo-detail-modal {
-    width: 100% !important;
-    height: calc(100dvh - 16px);
-    max-height: calc(100dvh - 16px);
-    border-radius: 18px;
+  .wo-detail-modal,
+  .wo-modal-layer .wo-drawer {
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
   }
 
-  .wo-detail-modal .wo-drawer__header,
-  .wo-detail-modal .drawer-section,
-  .wo-detail-modal .drawer-status-band,
-  .wo-detail-modal__bottom {
-    padding-left: 16px;
-    padding-right: 16px;
+  .wo-detail-modal .route-flow__group,
+  .wo-detail-modal .route-flow__group:first-child {
+    padding-left: 0;
   }
 
-  .wo-detail-modal .current-action-panel {
+  .wo-detail-modal .route-flow__group::before {
+    display: none;
+  }
+
+  .wo-detail-modal .route-card {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "seq"
+      "title"
+      "station"
+      "badges";
+    align-items: start;
   }
 
-  .wo-detail-modal .detail-grid--four,
-  .wo-detail-modal .shortfall-metric-grid,
-  .wo-detail-modal .process-ticket__metrics,
-  .wo-detail-modal .process-ticket__meta-grid,
-  .wo-detail-modal .process-ticket__input-panel {
+  .wo-detail-modal .route-card__badges {
+    justify-content: flex-start;
+  }
+
+  .wo-detail-modal .process-ticket header {
     grid-template-columns: 1fr;
-  }
-
-  .wo-detail-modal .section-heading__actions,
-  .wo-detail-modal .process-ticket__actions,
-  .wo-detail-modal__bottom {
-    justify-content: stretch;
-  }
-
-  .wo-detail-modal .section-heading__actions .button,
-  .wo-detail-modal .process-ticket__actions .button,
-  .wo-detail-modal__bottom .button {
-    width: 100%;
   }
 }

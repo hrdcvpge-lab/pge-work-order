@@ -498,6 +498,11 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     setSelectedId(order.id)
   }
 
+  const closeSelectedOrder = () => {
+    setModal(null)
+    setSelectedId(null)
+  }
+
   const beginStep = async (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
     const status = deriveStepStatus(order, step)
     if (status !== 'ready') return showToast('Proses belum siap. Periksa input proses atau HOLD terlebih dahulu.')
@@ -812,7 +817,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         team={teamForViews}
         staffDirectory={staffDirectory}
         clock={clock}
-        onClose={() => setSelectedId(null)}
+        onClose={closeSelectedOrder}
         onSchedule={() => setModal({ type: 'schedule', workOrder: selectedWorkOrder })}
         onAssign={(step) => setModal({ type: 'assign', workOrder: selectedWorkOrder, step })}
         onStart={(step) => setModal({ type: 'confirm-start', workOrder: selectedWorkOrder, step })}
