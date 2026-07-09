@@ -43,6 +43,7 @@ type Props = {
   onResume: (step: ProcessStep) => void
   onQcDecision: (step: ProcessStep) => void
   onCloseOrder: () => void
+  onArchiveOrder: () => void
   onCancel: () => void
   onManageArtwork: () => void
   onResolveShortfall: (shortfall: WorkOrderShortfall) => void
@@ -67,6 +68,10 @@ function canOperateStep(currentUser: TeamMember, step: ProcessStep) {
   return Boolean(step.assignedUserId) && step.assignedUserId === currentUser.id
 }
 
+function typeLabelsForDrawer(type: WorkOrder['type']) {
+  return type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer'
+}
+
 function approvalClass(image: WorkOrderReferenceImage) {
   if (image.approvalStatus === 'approved') return 'artwork-status artwork-status--approved'
   if (image.approvalStatus === 'superseded') return 'artwork-status artwork-status--superseded'
@@ -89,6 +94,7 @@ export function WorkOrderDrawer({
   onResume,
   onQcDecision,
   onCloseOrder,
+  onArchiveOrder,
   onCancel,
   onManageArtwork,
   onResolveShortfall,
@@ -118,8 +124,20 @@ export function WorkOrderDrawer({
       : shortfallSummary.replacementRemainingQty > 0
         ? `Penggantian ${formatNumber(shortfallSummary.replacementRemainingQty)} unit sedang berjalan.`
         : blocker || (isOverdue(workOrder) ? 'Melewati target tanggal' : 'Tidak ada blocker aktif')
-  const totalGood = getPackingGood(workOrder)
-  const totalReject = workOrder.steps.filter((step) => step.station === 'packing').reduce((total, step) => total + step.qtyReject, 0)
+  const finalStep = workOrder.steps[workOrder.steps.length - 1]
+  const totalGood = getPackingGood(workOrder) || finalStep?.qtyGood || 0
+  const totalReject = workOrder.steps.reduce((total, step) => total + step.qtyReject, 0)
+  const isStockProduction = workOrder.type === 'mts'
+  const finalStepLabel = isStockProduction ? 'Masuk Gudang / Stok Tersedia' : 'Packing / Siap Kirim'
+  const currentActionTitle = currentStep
+    ? deriveStepStatus(workOrder, currentStep) === 'in_progress'
+      ? `${currentStep.name} sedang dikerjakan`
+      : `${currentStep.name} siap ditindaklanjuti`
+    : status === 'done'
+      ? `${finalStepLabel} selesai`
+      : status === 'closed'
+        ? 'WO sudah ditutup'
+        : 'Tidak ada aksi aktif'
   const artworkImages = workOrder.referenceImages || []
   const finalArtwork = getApprovedPrimaryArtwork(workOrder)
   const artworkReadiness = getArtworkReadiness(workOrder)
@@ -132,14 +150,14 @@ export function WorkOrderDrawer({
     : workOrder.steps.filter((step) => step.assignedUserId === currentUser.id)
 
   return (
-    <div className="drawer-layer" role="presentation">
-      <button className="drawer-layer__backdrop" aria-label="Tutup detail" onClick={onClose} />
-      <aside className="wo-drawer" aria-label={`Detail ${workOrder.code}`}>
+    <div className="drawer-layer wo-modal-layer" role="dialog" aria-modal="true" aria-label={`Detail ${workOrder.code}`}>
+      <div className="drawer-layer__backdrop wo-modal-layer__backdrop" aria-hidden="true" />
+      <aside className="wo-drawer wo-detail-modal" aria-label={`Detail ${workOrder.code}`}>
         <header className="wo-drawer__header">
           <div>
-            <p className="eyebrow">Work Order</p>
-            <h2>{workOrder.code}</h2>
-            <p className="drawer-product">{workOrder.product}</p>
+            <p className="eyebrow">{workOrder.code}</p>
+            <h2>{workOrder.product}</h2>
+            <p className="drawer-product">{typeLabelsForDrawer(workOrder.type)} · Target {formatNumber(workOrder.qty)} unit · Due {formatDate(workOrder.dueDate)}</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Tutup detail"><Icon name="close" /></button>
         </header>
@@ -151,7 +169,16 @@ export function WorkOrderDrawer({
             {showLiveProcessIndicator ? <em className="live-process-banner">● Proses aktif sekarang</em> : null}
             <span>{statusNote}</span>
           </div>
-          <div className="drawer-progress-number"><b>{progress}%</b><span>Progress packing</span></div>
+          <div className="drawer-progress-number"><b>{progress}%</b><span>{isStockProduction ? 'Progress masuk gudang' : 'Progress siap kirim'}</span></div>
+        </section>
+
+        <section className="drawer-section current-action-panel">
+          <div className="current-action-panel__copy">
+            <p className="eyebrow">Aksi saat ini</p>
+            <h3>{currentActionTitle}</h3>
+            {currentStep ? <p>PIC: <b>{getMemberName(currentStep.assignedUserId, team, staffDirectory)}</b> · Input proses: <b>{currentStep.inputs.length ? currentStep.inputs.join(', ') : 'Mulai langsung'}</b></p> : <p>{status === 'closed' ? 'WO sudah read-only. Gunakan Laporan untuk evaluasi.' : 'Tidak ada proses yang menunggu tindakan.'}</p>}
+          </div>
+          {currentStep ? <div className="current-action-panel__metric"><span>Kapasitas saat ini</span><b>{Number.isFinite(getAvailableInputCap(workOrder, currentStep)) ? `${formatNumber(getAvailableInputCap(workOrder, currentStep))} unit` : 'Siap'}</b></div> : null}
         </section>
 
         <section className="drawer-section">
@@ -159,14 +186,14 @@ export function WorkOrderDrawer({
             <div><span>Target</span><b>{formatNumber(workOrder.qty)} unit</b></div>
             <div><span>Target selesai</span><b className={isOverdue(workOrder) ? 'text-danger' : ''}>{formatDate(workOrder.dueDate)}</b></div>
             <div><span>Waktu aktif</span><b>{formatDuration(getOrderActiveSeconds(workOrder, clock))}</b></div>
-            <div><span>Hasil akhir</span><b>{formatNumber(totalGood)} terpacking · {formatNumber(totalReject)} reject</b></div>
+            <div><span>Hasil akhir</span><b>{formatNumber(totalGood)} {isStockProduction ? 'masuk gudang' : 'siap kirim'} · {formatNumber(totalReject)} reject</b></div>
           </div>
           <div className="progress-bar"><span style={{ width: `${progress}%` }} /></div>
         </section>
 
         <section className={`drawer-section shortfall-section${shortfallSummary.actionRequiredQty > 0 ? ' shortfall-section--action' : shortfallSummary.awaitingApprovalQty > 0 ? ' shortfall-section--pending' : shortfallSummary.replacementRemainingQty > 0 ? ' shortfall-section--replacement' : ''}`}>
           <div className="section-heading">
-            <div><p className="eyebrow">Kekurangan & penggantian</p><h3>Target harus tetap dipertanggungjawabkan</h3></div>
+            <div><p className="eyebrow">{isStockProduction ? 'Hasil stok & reject' : 'Kekurangan & penggantian'}</p><h3>{isStockProduction ? 'Reject stok dicatat ke gudang, tanpa approval shortfall' : 'Target customer harus tetap dipertanggungjawabkan'}</h3></div>
             <div className="section-heading__actions">{shortfallSummary.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfallSummary.awaitingApprovalQty > 0 ? <Badge kind="shortfall" value="awaiting_approval" /> : shortfallSummary.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : <Badge kind="shortfall" value="resolved" />}</div>
           </div>
           <div className="shortfall-metric-grid">
@@ -215,12 +242,13 @@ export function WorkOrderDrawer({
         <section className="drawer-section drawer-section--actions">
           {['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="button button--primary" onClick={onSchedule}>Rencanakan & deploy WO</button> : null}
           {currentUser.role === 'admin' && status === 'draft' ? <button className="button button--danger-soft" onClick={onCancel}>Batalkan Draft</button> : null}
-          {currentUser.role === 'admin' && status === 'done' ? <button className="button button--primary" onClick={onCloseOrder}>Tutup WO & Perbarui Stok</button> : null}
+          {currentUser.role === 'ppic' && status === 'done' ? <button className="button button--primary" onClick={onCloseOrder}>Close WO</button> : null}
+          {currentUser.role === 'ppic' && status === 'closed' && !workOrder.isArchived ? <button className="button button--secondary" onClick={onArchiveOrder}>Archive WO</button> : null}
           {currentUser.role === 'manager' ? <span className="read-only-note">Mode manager: hanya melihat laporan dan histori.</span> : null}
         </section>
 
         <section className="drawer-section">
-          <div className="section-heading"><div><p className="eyebrow">Alur proses</p><h3>Rute, input proses, dan pemilik langkah</h3></div><span>{workOrder.steps.length} proses</span></div>
+          <div className="section-heading"><div><p className="eyebrow">Alur proses</p><h3>Rute, input proses, dan PIC aktual</h3></div><span>{workOrder.steps.length} proses</span></div>
           <div className="route-flow">
             {workOrder.steps.map((step, index) => {
               const stepStatus = deriveStepStatus(workOrder, step)
@@ -289,7 +317,7 @@ export function WorkOrderDrawer({
           <div className="section-heading"><div><p className="eyebrow">Riwayat</p><h3>Audit aktivitas WO</h3></div></div>
           <div className="history-list">{workOrder.history.map((item) => <article className="history-item" key={item.id}><span className="history-item__dot" /><div><b>{item.title}</b><p>{item.actor}{item.note ? ` · ${item.note}` : ''}</p></div><time>{formatDateTime(item.at)}</time></article>)}</div>
         </section>
-      </aside>
+      <div className="wo-detail-modal__bottom"><button type="button" className="button button--secondary" onClick={onClose}>Tutup</button></div></aside>
 
       {activeArtwork ? <div className="artwork-lightbox" role="dialog" aria-modal="true" aria-label="Preview artwork"><button className="artwork-lightbox__backdrop" onClick={() => setActiveArtwork(null)} aria-label="Tutup preview" /><figure><button type="button" className="icon-button" onClick={() => setActiveArtwork(null)} aria-label="Tutup preview"><Icon name="close" /></button><img src={activeArtwork.dataUrl} alt={activeArtwork.name} /><figcaption><span className={approvalClass(activeArtwork)}>{activeArtwork.isPrimary ? 'FINAL PRINT FILE · ' : ''}{artworkApprovalLabels[activeArtwork.approvalStatus]}</span><b>{activeArtwork.name} · {activeArtwork.version}</b><span>{activeArtwork.printNote || 'Tidak ada instruksi cetak tambahan.'}</span></figcaption></figure></div> : null}
     </div>
