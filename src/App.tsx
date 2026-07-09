@@ -30,7 +30,13 @@ import {
   getProgress,
   getShortfallSummary,
   shortfallStatusLabels,
+  getStepExtraQty,
+  getStepGradeBQty,
+  getStepHoldSortirQty,
+  getStepPendingReworkQty,
+  getStepScrapQty,
   getStepRecordedQty,
+  getStepResolvedQty,
   getStepTimerSeconds,
   getWipBalance,
   isOverdue,
@@ -941,10 +947,10 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         recordedByName={currentUser.name}
         onClose={() => setModal(null)}
         onSave={async (data) => {
-          const total = data.good + data.rework + data.reject
-          const cap = Math.min(modal.step.plannedQty - getStepRecordedQty(modal.step), getAvailableInputCap(modal.workOrder, modal.step))
+          const total = data.good + data.rework + data.reject + data.gradeB + data.holdSortir + data.scrap
+          const inputCap = getAvailableInputCap(modal.workOrder, modal.step)
           if (total <= 0) return showToast('Isi minimal satu hasil proses.')
-          if (total > cap) return showToast(`Total hasil tidak boleh melebihi ${formatNumber(cap)} unit.`)
+          if (Number.isFinite(inputCap) && total > inputCap) return showToast(`Total hasil tidak boleh melebihi input proses tersedia: ${formatNumber(inputCap)} unit.`)
 
           try {
             await recordLiveWorkOrderStepOutput({
@@ -952,19 +958,36 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               good: data.good,
               rework: data.rework,
               reject: data.reject,
+              extra: data.extra,
+              gradeB: data.gradeB,
+              holdSortir: data.holdSortir,
+              scrap: data.scrap,
+              action: data.action,
               location: data.location || modal.step.location || '',
               note: data.note,
             })
             const liveOrders = await reloadWorkOrders()
             const refreshedOrder = liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)
-            const optimisticRecordedQty = getStepRecordedQty(modal.step) + total
+            const elapsed = modal.step.startedAt ? Math.max(0, Math.floor((Date.now() - new Date(modal.step.startedAt).getTime()) / 1_000)) : 0
+            const optimisticResolvedQty = modal.step.qtyGood + data.good + modal.step.qtyReject + data.reject + (modal.step.qtyGradeB || 0) + data.gradeB + (modal.step.qtyHoldSortir || 0) + data.holdSortir + (modal.step.qtyScrap || 0) + data.scrap
+            const optimisticPendingRework = (modal.step.qtyPendingRework ?? modal.step.qtyRework) + data.rework
+            const keepRunning = data.action === 'continue' && optimisticResolvedQty < modal.step.plannedQty
+            const isComplete = !keepRunning && optimisticResolvedQty >= modal.step.plannedQty && optimisticPendingRework === 0
             const optimisticOrder = updateStep(modal.workOrder, modal.step.id, {
               qtyGood: modal.step.qtyGood + data.good,
               qtyRework: modal.step.qtyRework + data.rework,
               qtyReject: modal.step.qtyReject + data.reject,
-              status: optimisticRecordedQty >= modal.step.plannedQty ? 'completed' : 'ready',
-              startedAt: optimisticRecordedQty >= modal.step.plannedQty ? undefined : modal.step.startedAt,
-              completedAt: optimisticRecordedQty >= modal.step.plannedQty ? new Date().toISOString() : modal.step.completedAt,
+              qtyExtra: (modal.step.qtyExtra || 0) + data.extra,
+              qtyGradeB: (modal.step.qtyGradeB || 0) + data.gradeB,
+              qtyHoldSortir: (modal.step.qtyHoldSortir || 0) + data.holdSortir,
+              qtyScrap: (modal.step.qtyScrap || 0) + data.scrap,
+              qtyPendingRework: optimisticPendingRework,
+              lastResultAction: data.action,
+              resultNote: data.note,
+              status: isComplete ? 'completed' : keepRunning ? 'in_progress' : 'ready',
+              activeSeconds: keepRunning ? modal.step.activeSeconds : modal.step.activeSeconds + elapsed,
+              startedAt: keepRunning ? (modal.step.startedAt || new Date().toISOString()) : undefined,
+              completedAt: isComplete ? new Date().toISOString() : modal.step.completedAt,
             })
             const finishedOrder = isFinishedForNotice(refreshedOrder) ? refreshedOrder : isFinishedForNotice(optimisticOrder) ? optimisticOrder : null
 
@@ -977,7 +1000,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             }
 
             setSelectedId(refreshedOrder?.id || modal.workOrder.id)
-            showToast(data.reject > 0 ? (modal.workOrder.type === 'mts' ? 'Hasil stok tersimpan. Reject / Grade B / Hold dicatat sebagai klasifikasi gudang.' : 'Hasil tersimpan. Reject tercatat dan akan masuk kontrol kekurangan berikutnya.') : 'Hasil proses tersimpan di Supabase.')
+            showToast(data.action === 'continue' ? 'Hasil tersimpan. Timer proses tetap berjalan.' : data.rework > 0 ? 'Hasil tersimpan. Qty rework tercatat sebagai pending rework.' : 'Hasil proses tersimpan di Supabase.')
             setModal(null)
           } catch (error) {
             showToast(error instanceof Error ? error.message : 'Hasil proses tidak dapat disimpan.')
@@ -1648,56 +1671,82 @@ function FinishedWorkOrderModal({ workOrder, onConfirm }: { workOrder: WorkOrder
   </Modal>
 }
 
-function LogResultModal({ workOrder, step, performerName, recordedByName, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; performerName: string; recordedByName: string; onClose: () => void; onSave: (data: { good: number; rework: number; reject: number; location: string; note: string }) => void }) {
-  const cap = Math.min(step.plannedQty - getStepRecordedQty(step), getAvailableInputCap(workOrder, step))
+function LogResultModal({ workOrder, step, performerName, recordedByName, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; performerName: string; recordedByName: string; onClose: () => void; onSave: (data: { good: number; rework: number; reject: number; extra: number; gradeB: number; holdSortir: number; scrap: number; action: 'continue' | 'pause' | 'finish'; location: string; note: string }) => void }) {
+  const inputCap = getAvailableInputCap(workOrder, step)
+  const normalRemaining = Math.max(0, step.plannedQty - getStepResolvedQty(step))
   const isPackingStep = isFinalPackingStep(workOrder, step)
   const isStockInStep = isFinalStockInStep(workOrder, step)
-  const [data, setData] = useState({ good: 0, rework: 0, reject: 0, location: step.location || '', note: '' })
+  const [data, setData] = useState({ good: 0, rework: 0, reject: 0, gradeB: 0, holdSortir: 0, scrap: 0, location: step.location || '', note: '' })
   const [selectedNotes, setSelectedNotes] = useState<string[]>([])
-  const total = data.good + data.rework + data.reject
-  const resultTitle = isStockInStep ? 'Catat Masuk Gudang / Stok Tersedia' : isPackingStep ? 'Catat Packing / Siap Kirim' : 'Catat hasil proses'
+  const total = data.good + data.rework + data.reject + data.gradeB + data.holdSortir + data.scrap
+  const resolvedTotal = data.good + data.reject + data.gradeB + data.holdSortir + data.scrap
+  const projectedResolved = getStepResolvedQty(step) + resolvedTotal
+  const projectedGood = step.qtyGood + data.good
+  const extra = Math.max(0, projectedGood - step.plannedQty) - getStepExtraQty(step)
+  const hasInputLimit = Number.isFinite(inputCap)
+  const inputLimitExceeded = hasInputLimit && total > inputCap
+  const isPartial = projectedResolved < step.plannedQty || data.rework > 0
+  const resultTitle = isStockInStep ? 'Catat QC Akhir & Masuk Gudang' : isPackingStep ? 'Catat Packing / Siap Kirim' : 'Catat hasil proses'
   const resultSubtitle = isStockInStep
-    ? 'Gunakan layar ini untuk menutup proses stok: qty baik masuk gudang, qty hold/Grade B, dan scrap dicatat terpisah.'
+    ? 'Produksi Stok selesai ketika stok baik, Grade B, Hold Sortir, atau Scrap sudah diklasifikasikan. Rework tetap pending sampai diselesaikan.'
     : isPackingStep
-      ? 'Gunakan layar ini untuk menyatakan berapa unit sudah benar-benar terpacking dan siap dikirim.'
-      : 'Timer akan otomatis dijeda ketika hasil dicatat. Total hasil tidak boleh melebihi target yang masih tersedia.'
-  const goodLabel = isStockInStep ? 'Qty stok baik masuk gudang' : isPackingStep ? 'Qty siap kirim / terpacking' : 'Hasil baik'
-  const reworkLabel = isStockInStep ? 'Hold sortir / Grade B' : isPackingStep ? 'Perlu repacking' : 'Perlu rework'
-  const rejectLabel = isStockInStep ? 'Scrap / reject gudang' : isPackingStep ? 'Masalah packing / rusak' : 'Reject'
+      ? 'Catat unit yang benar-benar siap kirim. Extra di atas target harus dipisahkan sebagai stok tambahan.'
+      : 'Target WO tidak membatasi realita produksi. Jika layout menghasilkan lebih banyak, extra produksi tetap dicatat.'
+  const goodLabel = isStockInStep ? 'Stok baik masuk gudang' : isPackingStep ? 'Qty siap kirim / terpacking' : 'Hasil baik'
+  const reworkLabel = isStockInStep ? 'Pending rework' : isPackingStep ? 'Perlu repacking' : 'Perlu rework'
+  const rejectLabel = isStockInStep ? 'Reject proses' : isPackingStep ? 'Masalah packing / rusak' : 'Reject'
   const locationLabel = isStockInStep ? 'Lokasi gudang hasil' : isPackingStep ? 'Lokasi siap kirim' : 'Lokasi hasil proses'
-  const noteLabel = isStockInStep ? 'Catatan masuk gudang' : isPackingStep ? 'Catatan packing' : 'Catatan hasil'
+  const noteLabel = isStockInStep ? 'Catatan QC & gudang' : isPackingStep ? 'Catatan packing' : 'Catatan hasil'
   const notePlaceholder = isStockInStep
     ? 'Opsional: tambah detail rak, kendala, atau instruksi follow-up.'
     : isPackingStep
       ? 'Opsional: tambah detail label, kemasan, pickup, atau kendala packing.'
       : 'Opsional: tambah detail rak proses, kendala, atau instruksi berikutnya.'
   const quickNoteOptions = isStockInStep
-    ? ['Masuk gudang selesai', 'Masuk gudang sebagian', 'Stok baik diterima', 'Grade B dicatat', 'Hold sortir', 'Scrap / reject gudang', 'Lainnya']
+    ? ['QC lolos & masuk gudang', 'Masuk gudang sebagian', 'Grade B dicatat', 'Hold sortir', 'Scrap / reject gudang', 'Pending rework', 'Lainnya']
     : isPackingStep
-      ? ['Packing selesai', 'Packing sebagian', 'Kurang kemasan', 'Label / resi belum siap', 'Perlu repacking', 'Barang rusak saat packing', 'Lainnya']
-      : ['Selesai sesuai target', 'Selesai sebagian', 'Ada kendala bahan', 'Ada kendala alat', 'Perlu rework', 'Lainnya']
+      ? ['Packing selesai', 'Packing sebagian', 'Extra masuk gudang', 'Kurang kemasan', 'Label / resi belum siap', 'Perlu repacking', 'Lainnya']
+      : ['Selesai sesuai target', 'Selesai sebagian', 'Extra karena layout', 'Ada kendala bahan', 'Ada kendala alat', 'Perlu rework', 'Lainnya']
   const toggleQuickNote = (option: string) => {
     setSelectedNotes((current) => current.includes(option) ? current.filter((item) => item !== option) : [...current, option])
   }
   const buildSavedNote = () => [...selectedNotes, data.note.trim()].filter(Boolean).join(' · ')
   const completionStatus = total <= 0
     ? 'Belum ada hasil dicatat'
-    : total >= cap
-      ? (isStockInStep ? 'Stok selesai dicatat' : isPackingStep ? 'Packing selesai' : 'Proses selesai')
-      : (isStockInStep ? 'Stok masuk sebagian' : isPackingStep ? 'Packing sebagian' : 'Proses sebagian')
-  const updateQty = (field: 'good' | 'rework' | 'reject', value: string) => {
+    : inputLimitExceeded
+      ? 'Melebihi input tersedia'
+      : projectedResolved >= step.plannedQty && data.rework === 0
+        ? (isStockInStep ? 'Target stok terpenuhi' : isPackingStep ? 'Target siap kirim terpenuhi' : 'Target proses terpenuhi')
+        : 'Progress sebagian / perlu tindak lanjut'
+  const updateQty = (field: 'good' | 'rework' | 'reject' | 'gradeB' | 'holdSortir' | 'scrap', value: string) => {
     const cleaned = value.replace(/[^0-9]/g, '')
     setData((current) => ({ ...current, [field]: cleaned ? Number(cleaned) : 0 }))
   }
+  const submitWithAction = (action: 'continue' | 'pause' | 'finish') => {
+    onSave({ ...data, extra, action, note: buildSavedNote() })
+  }
 
   return <Modal title={resultTitle} subtitle={resultSubtitle} onClose={onClose}>
-    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ ...data, note: buildSavedNote() }) }}>
-      <div className="result-summary"><div><span>Batas dapat dicatat</span><b>{formatNumber(cap)}</b></div><div><span>Draft sekarang</span><b className={total > cap ? 'text-danger' : ''}>{formatNumber(total)}</b></div><div><span>Status</span><b>{completionStatus}</b></div></div>
+    <form className="form-stack" onSubmit={(event) => event.preventDefault()}>
+      <div className="result-summary"><div><span>Target normal tersisa</span><b>{formatNumber(normalRemaining)}</b></div><div><span>Draft sekarang</span><b className={inputLimitExceeded ? 'text-danger' : ''}>{formatNumber(total)}</b></div><div><span>Extra produksi</span><b className={extra > 0 ? 'text-warning' : ''}>{extra > 0 ? `+${formatNumber(extra)}` : '0'}</b></div><div><span>Status</span><b>{completionStatus}</b></div></div>
       <div className="assisted-progress-box"><Icon name="user" /><span><b>Pelaksana aktual:</b> {performerName}. <b>Dicatat oleh:</b> {recordedByName}.</span></div>
-      {(isPackingStep || isStockInStep) ? <div className="callout callout--warning"><Icon name="warning" /><span><b>{isStockInStep ? 'Produksi Stok final bukan Packing.' : 'Packing final untuk Pesanan Customer.'}</b> {isStockInStep ? 'Hasil baik menjadi Stok Tersedia. Grade B / Hold Sortir / Scrap dicatat sebagai klasifikasi gudang, bukan approval short shipment.' : 'Yang dicatat adalah unit yang benar-benar siap dikirim, bukan hasil produksi umum.'}</span></div> : null}
-      <div className="form-grid"><label><span>{goodLabel}</span><input min="0" type="number" value={data.good} onChange={(event) => updateQty('good', event.target.value)} /></label><label><span>{reworkLabel}</span><input min="0" type="number" value={data.rework} onChange={(event) => updateQty('rework', event.target.value)} /></label><label><span>{rejectLabel}</span><input min="0" type="number" value={data.reject} onChange={(event) => updateQty('reject', event.target.value)} /></label><label><span>{locationLabel}</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder={isStockInStep ? 'Rak stok / gudang finish good' : isPackingStep ? 'Area siap kirim / staging marketplace' : 'Rak barang proses / area berikutnya'} /></label></div>
+      {inputLimitExceeded ? <div className="callout callout--danger"><Icon name="warning" /><span>Total hasil melebihi input proses tersedia: {formatNumber(inputCap)} unit. Tambahkan input dari proses sebelumnya dulu.</span></div> : null}
+      {extra > 0 ? <div className="callout callout--warning"><Icon name="warning" /><span><b>Extra produksi +{formatNumber(extra)} unit.</b> Target WO tetap {formatNumber(step.plannedQty)} unit; kelebihan dicatat sebagai extra produksi untuk evaluasi stok/laporan.</span></div> : null}
+      {(isPackingStep || isStockInStep) ? <div className="callout callout--warning"><Icon name="warning" /><span><b>{isStockInStep ? 'Final Produksi Stok = QC Akhir & Masuk Gudang.' : 'Final Pesanan Customer = Packing / Siap Kirim.'}</b> {isStockInStep ? 'Grade B / Hold Sortir / Scrap adalah klasifikasi gudang dan bukan approval short shipment.' : 'Unit extra di atas target customer harus dipisahkan sebagai stok tambahan.'}</span></div> : null}
+      <div className="form-grid">
+        <label><span>{goodLabel}</span><input min="0" type="number" value={data.good} onChange={(event) => updateQty('good', event.target.value)} /></label>
+        {isStockInStep ? <><label><span>Grade B</span><input min="0" type="number" value={data.gradeB} onChange={(event) => updateQty('gradeB', event.target.value)} /></label><label><span>Hold Sortir</span><input min="0" type="number" value={data.holdSortir} onChange={(event) => updateQty('holdSortir', event.target.value)} /></label><label><span>Scrap</span><input min="0" type="number" value={data.scrap} onChange={(event) => updateQty('scrap', event.target.value)} /></label></> : null}
+        <label><span>{reworkLabel}</span><input min="0" type="number" value={data.rework} onChange={(event) => updateQty('rework', event.target.value)} /></label>
+        <label><span>{rejectLabel}</span><input min="0" type="number" value={data.reject} onChange={(event) => updateQty('reject', event.target.value)} /></label>
+        <label><span>{locationLabel}</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder={isStockInStep ? 'Rak stok / gudang finish good' : isPackingStep ? 'Area siap kirim / staging marketplace' : 'Rak barang proses / area berikutnya'} /></label>
+      </div>
       <div className="result-note-picker"><div className="result-note-picker__head"><span>{noteLabel}</span><small>Pilih catatan cepat. Catatan tambahan boleh dikosongkan.</small></div><div className="result-note-options">{quickNoteOptions.map((option) => <button type="button" key={option} className={selectedNotes.includes(option) ? 'is-selected' : ''} onClick={() => toggleQuickNote(option)}>{option}</button>)}</div><textarea value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder={notePlaceholder} /></div>
-      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary" disabled={total <= 0 || total > cap}>{isStockInStep ? 'Simpan stok masuk' : isPackingStep ? 'Simpan packing' : 'Simpan hasil'}</button></footer>
+      <footer className="modal-card__footer result-action-footer">
+        <button type="button" className="button button--secondary" onClick={onClose}>Batal</button>
+        {isPartial ? <button type="button" className="button button--secondary" disabled={total <= 0 || inputLimitExceeded} onClick={() => submitWithAction('continue')}>Simpan & lanjutkan timer</button> : null}
+        {isPartial ? <button type="button" className="button button--warning" disabled={total <= 0 || inputLimitExceeded} onClick={() => submitWithAction('pause')}>Simpan & jeda</button> : null}
+        <button type="button" className="button button--primary" disabled={total <= 0 || inputLimitExceeded} onClick={() => submitWithAction('finish')}>{isStockInStep ? 'Simpan stok masuk' : isPackingStep ? 'Simpan packing' : 'Simpan hasil'}</button>
+      </footer>
     </form>
   </Modal>
 }

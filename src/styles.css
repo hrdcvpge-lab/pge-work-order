@@ -2171,3 +2171,24 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
     grid-template-columns: 1fr;
   }
 }
+
+/* v0.4.9.9 — production quantity control */
+.text-warning {
+  color: #b45309 !important;
+}
+
+.badge--partial_paused {
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.result-action-footer {
+  flex-wrap: wrap;
+}
+
+.shortfall-empty--warning {
+  background: #fffbeb;
+  border-color: #facc15;
+  color: #854d0e;
+}
