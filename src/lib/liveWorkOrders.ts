@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Priority, ProcessStep, Station, WorkOrder, WorkOrderStatus, WorkOrderType } from '../types/workOrder'
+import type { Priority, ProcessStep, ResultAction, Station, WorkOrder, WorkOrderStatus, WorkOrderType } from '../types/workOrder'
 
 type DbStationCode = 'printing' | 'cutting' | 'sewing_assembly' | 'finishing' | 'qc' | 'packing' | 'warehouse'
 type DbStepStatus = 'planned' | 'ready' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
@@ -45,6 +45,13 @@ type DbStepRow = {
   qty_good: number | string | null
   qty_rework: number | string | null
   qty_reject: number | string | null
+  qty_extra: number | string | null
+  qty_grade_b: number | string | null
+  qty_hold_sortir: number | string | null
+  qty_scrap: number | string | null
+  qty_pending_rework: number | string | null
+  last_result_action: ResultAction | null
+  result_note: string | null
   active_seconds: number | string | null
   status: DbStepStatus
   scheduled_date: string | null
@@ -143,6 +150,13 @@ function mapStep(row: DbStepRow, stationsById: Map<string, DbStationRow>): Proce
     qtyGood: parseNumber(row.qty_good),
     qtyRework: parseNumber(row.qty_rework),
     qtyReject: parseNumber(row.qty_reject),
+    qtyExtra: parseNumber(row.qty_extra),
+    qtyGradeB: parseNumber(row.qty_grade_b),
+    qtyHoldSortir: parseNumber(row.qty_hold_sortir),
+    qtyScrap: parseNumber(row.qty_scrap),
+    qtyPendingRework: row.qty_pending_rework === null || row.qty_pending_rework === undefined ? parseNumber(row.qty_rework) : parseNumber(row.qty_pending_rework),
+    lastResultAction: row.last_result_action || undefined,
+    resultNote: row.result_note || undefined,
     activeSeconds: parseNumber(row.active_seconds),
     startedAt: row.started_at || undefined,
     completedAt: row.completed_at || undefined,
@@ -249,6 +263,13 @@ export async function fetchLiveWorkOrders(): Promise<WorkOrder[]> {
           qty_good,
           qty_rework,
           qty_reject,
+          qty_extra,
+          qty_grade_b,
+          qty_hold_sortir,
+          qty_scrap,
+          qty_pending_rework,
+          last_result_action,
+          result_note,
           active_seconds,
           status,
           scheduled_date,
@@ -356,6 +377,11 @@ export type RecordStepOutputInput = {
   good: number
   rework: number
   reject: number
+  extra: number
+  gradeB: number
+  holdSortir: number
+  scrap: number
+  action: ResultAction
   location: string
   note: string
 }
@@ -373,12 +399,17 @@ export async function startLiveWorkOrderStep(input: StartWorkOrderStepInput): Pr
 export async function recordLiveWorkOrderStepOutput(input: RecordStepOutputInput): Promise<void> {
   if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
 
-  const { error } = await supabase.rpc('record_work_order_step_output', {
+  const { error } = await supabase.rpc('record_work_order_step_output_v2', {
     target_step_id: input.stepId,
     payload: {
       good_qty: input.good,
       rework_qty: input.rework,
       reject_qty: input.reject,
+      extra_qty: input.extra,
+      grade_b_qty: input.gradeB,
+      hold_sortir_qty: input.holdSortir,
+      scrap_qty: input.scrap,
+      result_action: input.action,
       location: input.location || null,
       note: input.note || null,
     },
