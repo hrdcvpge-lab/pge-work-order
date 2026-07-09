@@ -45,7 +45,7 @@ export type DefectCategory =
   | 'packaging_issue'
   | 'other'
 
-/** Quantity that cannot reach Packing yet because a process rejected it or QC issued a final reject. */
+/** Quantity that cannot reach the final step because a process rejected it or QC issued a final reject. */
 export type ShortfallOrigin = 'process_reject' | 'qc_final_reject'
 export type ShortfallStatus =
   | 'action_required'
