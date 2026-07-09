@@ -90,8 +90,8 @@ export const priorityLabels: Record<Priority, string> = {
 }
 
 export const typeLabels: Record<WorkOrderType, string> = {
-  mto: 'MTO · Pesanan customer',
-  mts: 'MTS · Buat stok',
+  mto: 'Pesanan Customer',
+  mts: 'Produksi Stok',
 }
 
 export const statusLabels: Record<WorkOrderStatus, string> = {
@@ -109,7 +109,7 @@ export const processLabels: Record<ProcessStatus, string> = {
   not_ready: 'Belum siap',
   ready: 'Siap dikerjakan',
   in_progress: 'Sedang dikerjakan',
-  waiting_wip: 'Menunggu WIP',
+  waiting_wip: 'Menunggu input proses',
   hold: 'HOLD',
   completed: 'Selesai',
 }
@@ -287,7 +287,7 @@ export const getBlockerSummary = (workOrder: WorkOrder) => {
   if (holds.length) return `HOLD · ${holds[0].name}`
 
   const waiting = workOrder.steps.filter((step) => deriveStepStatus(workOrder, step) === 'waiting_wip')
-  if (waiting.length) return `Menunggu WIP · ${waiting[0].name}`
+  if (waiting.length) return `Menunggu input proses · ${waiting[0].name}`
 
   return ''
 }
