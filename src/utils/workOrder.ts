@@ -99,7 +99,7 @@ export const statusLabels: Record<WorkOrderStatus, string> = {
   scheduled: 'Terjadwal',
   in_progress: 'Produksi',
   qc: 'QC',
-  packing: 'Packing',
+  packing: 'Finalisasi akhir',
   done: 'Selesai',
   closed: 'Ditutup',
   cancelled: 'Dibatalkan',
@@ -151,17 +151,34 @@ export const getStepTimerSeconds = (step: ProcessStep, clock = Date.now()) => {
   return step.activeSeconds + Math.max(0, Math.floor((clock - started) / 1000))
 }
 
-export const getPackingGood = (workOrder: WorkOrder) => workOrder.steps
-  .filter((step) => step.station === 'packing')
-  .reduce((total, step) => total + step.qtyGood, 0)
+export const getFinalProcessStep = (workOrder: WorkOrder) => workOrder.steps.at(-1)
 
-export const getPackingReject = (workOrder: WorkOrder) => workOrder.steps
-  .filter((step) => step.station === 'packing')
-  .reduce((total, step) => total + step.qtyReject, 0)
+export const isFinalStockInStep = (workOrder: WorkOrder, step: ProcessStep) =>
+  workOrder.type === 'mts' && getFinalProcessStep(workOrder)?.id === step.id
+
+export const isFinalPackingStep = (workOrder: WorkOrder, step: ProcessStep) =>
+  workOrder.type === 'mto' && getFinalProcessStep(workOrder)?.id === step.id
+
+export const getFinalGoodQty = (workOrder: WorkOrder) => getFinalProcessStep(workOrder)?.qtyGood || 0
+
+export const getPackingGood = (workOrder: WorkOrder) => getFinalGoodQty(workOrder)
+
+export const getPackingReject = (workOrder: WorkOrder) => getFinalProcessStep(workOrder)?.qtyReject || 0
+
+export const getStockClassifiedQty = (workOrder: WorkOrder) => {
+  if (workOrder.type !== 'mts') return 0
+  const finalStep = getFinalProcessStep(workOrder)
+  const rejectQty = workOrder.steps.reduce((total, step) => total + step.qtyReject, 0)
+  const gradeOrHoldQty = finalStep?.qtyRework || 0
+  return rejectQty + gradeOrHoldQty
+}
+
+export const getStockRejectQty = getStockClassifiedQty
 
 export const getShortfallSummary = (workOrder: WorkOrder) => {
   const shortfalls = workOrder.shortfalls || []
   const packedGood = getPackingGood(workOrder)
+  const stockClassifiedQty = getStockClassifiedQty(workOrder)
   const approvedShortShipmentQty = shortfalls
     .filter((item) => item.status === 'approved_short_shipment')
     .reduce((total, item) => total + item.qty, 0)
@@ -177,24 +194,30 @@ export const getShortfallSummary = (workOrder: WorkOrder) => {
   const replacementPlannedQty = shortfalls
     .filter((item) => item.status === 'replacement_planned')
     .reduce((total, item) => total + item.qty, 0)
-  const approvedQty = approvedShortShipmentQty + cancelledRemainingQty
+  const approvedQty = workOrder.type === 'mts'
+    ? stockClassifiedQty
+    : approvedShortShipmentQty + cancelledRemainingQty
   const remainingQty = Math.max(0, workOrder.qty - packedGood - approvedQty)
   const replacementRemainingQty = remainingQty > 0 ? Math.min(replacementPlannedQty, remainingQty) : 0
-  const requiresActionQty = actionRequiredQty + awaitingApprovalQty + Math.max(0, remainingQty - replacementRemainingQty - actionRequiredQty - awaitingApprovalQty)
+  const requiresActionQty = workOrder.type === 'mts'
+    ? 0
+    : actionRequiredQty + awaitingApprovalQty + Math.max(0, remainingQty - replacementRemainingQty - actionRequiredQty - awaitingApprovalQty)
 
   return {
     shortfalls,
     packedGood,
+    stockClassifiedQty,
+    stockRejectedQty: stockClassifiedQty,
     approvedShortShipmentQty,
     cancelledRemainingQty,
     approvedQty,
-    actionRequiredQty,
-    awaitingApprovalQty,
+    actionRequiredQty: workOrder.type === 'mts' ? 0 : actionRequiredQty,
+    awaitingApprovalQty: workOrder.type === 'mts' ? 0 : awaitingApprovalQty,
     replacementPlannedQty,
     replacementRemainingQty,
     remainingQty,
     requiresActionQty,
-    isFulfilled: remainingQty === 0 && actionRequiredQty === 0,
+    isFulfilled: remainingQty === 0 && (workOrder.type === 'mts' || actionRequiredQty === 0),
   }
 }
 
@@ -207,12 +230,14 @@ export const getCloseReadiness = (workOrder: WorkOrder) => {
     return { ready: false, reason: `${formatNumber(summary.awaitingApprovalQty)} unit masih menunggu persetujuan Manager / Owner.` }
   }
   if (summary.remainingQty > 0) {
-    return { ready: false, reason: `Masih kurang ${formatNumber(summary.remainingQty)} unit dari target WO. Selesaikan penggantian atau setujui pengiriman kurang/sisa dibatalkan.` }
+    return { ready: false, reason: workOrder.type === 'mts'
+      ? `Masih ada ${formatNumber(summary.remainingQty)} unit Produksi Stok yang belum masuk gudang atau belum tercatat sebagai reject/Grade B/Hold Sortir/Scrap.`
+      : `Masih kurang ${formatNumber(summary.remainingQty)} unit dari target WO. Selesaikan penggantian atau setujui pengiriman kurang/sisa dibatalkan.` }
   }
   return { ready: true, reason: '' }
 }
 
-export const isFinalStep = (step: ProcessStep) => step.station === 'packing'
+export const isFinalStep = (workOrder: WorkOrder, step: ProcessStep) => getFinalProcessStep(workOrder)?.id === step.id
 
 export const getWipBalance = (workOrder: WorkOrder, wipName: string) => {
   const produced = workOrder.steps
@@ -260,6 +285,7 @@ export const deriveOrderStatus = (workOrder: WorkOrder): WorkOrderStatus => {
   const current = getCurrentProcess(workOrder)
   if (current?.station === 'qc') return 'qc'
   if (current?.station === 'packing') return 'packing'
+  if (workOrder.type === 'mts' && current?.station === 'warehouse' && isFinalStep(workOrder, current)) return 'packing'
   if (workOrder.steps.some((step) => deriveStepStatus(workOrder, step) === 'in_progress')) return 'in_progress'
 
   return 'scheduled'
