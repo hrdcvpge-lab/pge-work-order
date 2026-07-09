@@ -26,10 +26,12 @@ export type ProcessStatus =
   | 'in_progress'
   | 'waiting_wip'
   | 'hold'
+  | 'partial_paused'
   | 'completed'
 
 export type Priority = 'p1' | 'p2' | 'p3' | 'p4'
 export type WorkOrderType = 'mto' | 'mts'
+export type ResultAction = 'continue' | 'pause' | 'finish'
 export type ArtworkApprovalStatus = 'pending' | 'approved' | 'superseded'
 
 export type DefectCategory =
@@ -104,6 +106,16 @@ export interface ProcessStep {
   qtyGood: number
   qtyRework: number
   qtyReject: number
+  /** Quantity above planned target. Keeps actual output honest without changing WO target. */
+  qtyExtra?: number
+  /** Stock-production final classification. */
+  qtyGradeB?: number
+  qtyHoldSortir?: number
+  qtyScrap?: number
+  /** Rework that is not yet resolved into good stock, packing, Grade B, Hold, or Scrap. */
+  qtyPendingRework?: number
+  lastResultAction?: ResultAction
+  resultNote?: string
   activeSeconds: number
   startedAt?: string
   completedAt?: string
