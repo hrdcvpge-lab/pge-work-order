@@ -5,7 +5,7 @@ import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
-import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
+import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, resolveLivePendingRework, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
@@ -59,6 +59,7 @@ type ModalState =
   | { type: 'qc'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'shortfall-action'; workOrder: WorkOrder; shortfall: WorkOrderShortfall }
   | { type: 'review-shortfall'; workOrder: WorkOrder; shortfall: WorkOrderShortfall }
+  | { type: 'resolve-rework'; workOrder: WorkOrder }
   | { type: 'manage-artwork'; workOrder: WorkOrder }
   | { type: 'confirm-artwork'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'confirm-close'; workOrder: WorkOrder }
@@ -532,8 +533,11 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   }
 
   const beginStep = async (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
+    const pendingReworkQty = getShortfallSummary(order).pendingReworkQty
+    if (pendingReworkQty > 0) return showToast(`${formatNumber(pendingReworkQty)} unit masih pending rework. Selesaikan rework dulu, jangan mulai proses lama.`)
+
     const status = deriveStepStatus(order, step)
-    if (status !== 'ready') return showToast('Proses belum siap. Periksa input proses atau HOLD terlebih dahulu.')
+    if (!['ready', 'partial_paused'].includes(status)) return showToast('Proses belum siap. Periksa input proses atau HOLD terlebih dahulu.')
 
     try {
       await startLiveWorkOrderStep({ stepId: step.id })
@@ -862,6 +866,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         onManageArtwork={() => openModalFromWorkOrderDetail({ type: 'manage-artwork', workOrder: selectedWorkOrder })}
         onResolveShortfall={(shortfall) => openModalFromWorkOrderDetail({ type: 'shortfall-action', workOrder: selectedWorkOrder, shortfall })}
         onReviewShortfall={(shortfall) => openModalFromWorkOrderDetail({ type: 'review-shortfall', workOrder: selectedWorkOrder, shortfall })}
+        onResolveRework={() => openModalFromWorkOrderDetail({ type: 'resolve-rework', workOrder: selectedWorkOrder })}
       /> : null}
 
       {modal?.type === 'create' ? <CreateWorkOrderModal
@@ -999,7 +1004,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               return
             }
 
-            setSelectedId(refreshedOrder?.id || modal.workOrder.id)
+            setSelectedId((refreshedOrder as WorkOrder | undefined)?.id || modal.workOrder.id)
             showToast(data.action === 'continue' ? 'Hasil tersimpan. Timer proses tetap berjalan.' : data.rework > 0 ? 'Hasil tersimpan. Qty rework tercatat sebagai pending rework.' : 'Hasil proses tersimpan di Supabase.')
             setModal(null)
           } catch (error) {
@@ -1063,7 +1068,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               return
             }
 
-            setSelectedId(refreshedOrder?.id || modal.workOrder.id)
+            setSelectedId((refreshedOrder as WorkOrder | undefined)?.id || modal.workOrder.id)
             showToast(
               data.decision === 'rework'
                 ? 'Keputusan QC tersimpan. Qty rework tercatat di Supabase.'
@@ -1076,6 +1081,39 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             setModal(null)
           } catch (error) {
             showToast(error instanceof Error ? error.message : 'Keputusan QC tidak dapat disimpan.')
+          }
+        }}
+      /> : null}
+
+
+      {modal?.type === 'resolve-rework' ? <ResolveReworkModal
+        workOrder={modal.workOrder}
+        onClose={() => setModal(null)}
+        onSave={async (data) => {
+          try {
+            await resolveLivePendingRework({
+              workOrderId: modal.workOrder.id,
+              good: data.good,
+              gradeB: data.gradeB,
+              holdSortir: data.holdSortir,
+              scrap: data.scrap,
+              location: data.location,
+              note: data.note,
+            })
+            const liveOrders = await reloadWorkOrders()
+            const refreshedOrder = liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)
+            if (isFinishedForNotice(refreshedOrder)) {
+              setSelectedId(null)
+              setView('dashboard')
+              setModal({ type: 'finished-notice', workOrder: refreshedOrder })
+              showToast(`${refreshedOrder.code} selesai. Pending rework sudah diselesaikan.`)
+              return
+            }
+            setSelectedId((refreshedOrder as WorkOrder | undefined)?.id || modal.workOrder.id)
+            setModal(null)
+            showToast('Pending rework berhasil diklasifikasikan.')
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : 'Pending rework tidak dapat diselesaikan.')
           }
         }}
       /> : null}
@@ -1668,6 +1706,38 @@ function FinishedWorkOrderModal({ workOrder, onConfirm }: { workOrder: WorkOrder
     <footer className="modal-card__footer">
       <button type="button" className="button button--primary" onClick={onConfirm}>Kembali ke dashboard</button>
     </footer>
+  </Modal>
+}
+
+
+function ResolveReworkModal({ workOrder, onClose, onSave }: { workOrder: WorkOrder; onClose: () => void; onSave: (data: { good: number; gradeB: number; holdSortir: number; scrap: number; location: string; note: string }) => void }) {
+  const summary = getShortfallSummary(workOrder)
+  const pending = summary.pendingReworkQty
+  const isStock = workOrder.type === 'mts'
+  const finalStep = getFinalProcessStep(workOrder)
+  const [data, setData] = useState({ good: 0, gradeB: 0, holdSortir: 0, scrap: 0, location: finalStep?.location || defaultLocationForStation(finalStep?.station || 'warehouse'), note: '' })
+  const total = data.good + data.gradeB + data.holdSortir + data.scrap
+  const invalid = total <= 0 || total > pending
+  const updateQty = (field: 'good' | 'gradeB' | 'holdSortir' | 'scrap', value: string) => {
+    const cleaned = value.replace(/[^0-9]/g, '')
+    setData((current) => ({ ...current, [field]: cleaned ? Number(cleaned) : 0 }))
+  }
+
+  return <Modal title="Selesaikan pending rework" subtitle="Rework bukan hasil final. Qty ini harus dikembalikan menjadi stok baik/siap kirim atau diklasifikasikan sebelum WO dapat selesai." onClose={onClose}>
+    <form className="form-stack" onSubmit={(event) => { event.preventDefault(); if (!invalid) onSave(data) }}>
+      <div className="result-summary"><div><span>WO</span><b>{workOrder.code}</b></div><div><span>Pending rework</span><b className="text-danger">{formatNumber(pending)}</b></div><div><span>Draft resolusi</span><b className={total > pending ? 'text-danger' : ''}>{formatNumber(total)}</b></div></div>
+      <div className="callout callout--warning"><Icon name="warning" /><span><b>Jangan mulai proses lama lagi.</b> Pilih hasil akhir dari unit rework. {isStock ? 'Untuk Produksi Stok, Grade B / Hold Sortir / Scrap dianggap klasifikasi gudang.' : 'Untuk Pesanan Customer, gunakan stok baik hanya jika rework sudah lolos QC dan siap kirim.'}</span></div>
+      <div className="form-grid">
+        <label><span>{isStock ? 'Stok baik masuk gudang' : 'Siap kirim setelah rework'}</span><input min="0" type="number" value={data.good} onChange={(event) => updateQty('good', event.target.value)} /></label>
+        <label><span>Grade B</span><input min="0" type="number" value={data.gradeB} onChange={(event) => updateQty('gradeB', event.target.value)} /></label>
+        <label><span>Hold Sortir</span><input min="0" type="number" value={data.holdSortir} onChange={(event) => updateQty('holdSortir', event.target.value)} /></label>
+        <label><span>Scrap / reject gudang</span><input min="0" type="number" value={data.scrap} onChange={(event) => updateQty('scrap', event.target.value)} /></label>
+        <label><span>Lokasi hasil</span><input value={data.location} onChange={(event) => setData({ ...data, location: event.target.value })} placeholder="Rak gudang / area hasil rework" /></label>
+      </div>
+      {total > pending ? <div className="callout callout--danger"><Icon name="warning" /><span>Resolusi melebihi pending rework: maksimal {formatNumber(pending)} unit.</span></div> : null}
+      <label><span>Catatan resolusi</span><textarea value={data.note} onChange={(event) => setData({ ...data, note: event.target.value })} placeholder="Opsional: jelaskan apakah rework diperbaiki, turun Grade B, hold sortir, atau scrap." /></label>
+      <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" disabled={invalid} className="button button--primary">Simpan resolusi rework</button></footer>
+    </form>
   </Modal>
 }
 
