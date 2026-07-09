@@ -5,7 +5,7 @@ import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
-import { createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
+import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
 import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
 import {
@@ -52,6 +52,7 @@ type ModalState =
   | { type: 'manage-artwork'; workOrder: WorkOrder }
   | { type: 'confirm-artwork'; workOrder: WorkOrder; step: ProcessStep }
   | { type: 'confirm-close'; workOrder: WorkOrder }
+  | { type: 'confirm-archive'; workOrder: WorkOrder }
   | { type: 'confirm-cancel'; workOrder: WorkOrder }
   | { type: 'finished-notice'; workOrder: WorkOrder }
   | null
@@ -442,6 +443,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     const needle = search.trim().toLocaleLowerCase('id-ID')
     return scopedOrders.filter((order) => {
       const status = deriveOrderStatus(order)
+      if (order.isArchived || status === 'closed') return false
       const matchesSearch = !needle || `${order.code} ${order.product} ${order.source}`.toLocaleLowerCase('id-ID').includes(needle)
       const matchesStatus = statusFilter === 'all' || status === statusFilter
       const matchesPriority = priorityFilter === 'all' || order.priority === priorityFilter
@@ -541,7 +543,13 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     applyOrderUpdate(updated, 'HOLD dibuka.')
   }
 
-  const closeOrder = (order: WorkOrder) => {
+  const closeOrder = async (order: WorkOrder) => {
+    if (currentUser.role !== 'ppic') {
+      showToast('Hanya PPIC yang boleh close WO.')
+      setModal(null)
+      return
+    }
+
     const readiness = getCloseReadiness(order)
     if (!readiness.ready) {
       showToast(`WO belum dapat ditutup. ${readiness.reason}`)
@@ -549,16 +557,42 @@ export default function App({ currentUser, onSignOut }: AppProps) {
       return
     }
 
-    const updated: WorkOrder = {
-      ...order,
-      status: 'closed',
-      shortfalls: (order.shortfalls || []).map((item) => item.status === 'replacement_planned'
-        ? { ...item, status: 'resolved' as const, resolvedBy: currentUser.name, resolvedAt: new Date().toISOString(), resolutionNote: 'Target WO sudah terpenuhi di Packing.' }
-        : item),
-      history: [makeHistory(currentUser, 'WO ditutup', 'Administrasi penutupan dan pembaruan stok akan diproses backend nanti.'), ...order.history],
+    try {
+      await closeLiveWorkOrder(order.id)
+      const liveOrders = await reloadWorkOrders()
+      setSelectedId(liveOrders.find((item) => item.id === order.id)?.id || order.id)
+      showToast(`${order.code} berhasil di-close oleh PPIC.`)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'WO tidak dapat di-close.')
+    } finally {
+      setModal(null)
     }
-    applyOrderUpdate(updated, 'WO ditutup.')
-    setModal(null)
+  }
+
+  const archiveOrder = async (order: WorkOrder) => {
+    if (currentUser.role !== 'ppic') {
+      showToast('Hanya PPIC yang boleh archive WO.')
+      setModal(null)
+      return
+    }
+
+    if (deriveOrderStatus(order) !== 'closed') {
+      showToast('Archive hanya boleh dilakukan setelah WO di-close.')
+      setModal(null)
+      return
+    }
+
+    try {
+      await archiveLiveWorkOrder(order.id)
+      await reloadWorkOrders()
+      setSelectedId(null)
+      setView('reports')
+      showToast(`${order.code} di-archive. Data tetap tersedia di Laporan.`)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'WO tidak dapat di-archive.')
+    } finally {
+      setModal(null)
+    }
   }
 
   const cancelOrder = async (order: WorkOrder) => {
@@ -787,6 +821,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         onResume={(step) => resumeStep(selectedWorkOrder, step)}
         onQcDecision={(step) => setModal({ type: 'qc', workOrder: selectedWorkOrder, step })}
         onCloseOrder={() => setModal({ type: 'confirm-close', workOrder: selectedWorkOrder })}
+        onArchiveOrder={() => setModal({ type: 'confirm-archive', workOrder: selectedWorkOrder })}
         onCancel={() => setModal({ type: 'confirm-cancel', workOrder: selectedWorkOrder })}
         onManageArtwork={() => setModal({ type: 'manage-artwork', workOrder: selectedWorkOrder })}
         onResolveShortfall={(shortfall) => setModal({ type: 'shortfall-action', workOrder: selectedWorkOrder, shortfall })}
@@ -1100,7 +1135,8 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         }}
       /> : null}
 
-      {modal?.type === 'confirm-close' ? <ConfirmModal title="Tutup Work Order" description="Pastikan packing dan hasil akhir sudah benar. Setelah ditutup, perubahan harus dilakukan melalui proses revisi/audit." confirmLabel="Tutup WO" onClose={() => setModal(null)} onConfirm={() => closeOrder(modal.workOrder)} /> : null}
+      {modal?.type === 'confirm-close' ? <ConfirmModal title="Close Work Order" description="Hanya PPIC yang dapat close WO. Pastikan proses final sudah selesai dan hasil akhir siap dievaluasi di Laporan." confirmLabel="Close WO" onClose={() => setModal(null)} onConfirm={() => closeOrder(modal.workOrder)} /> : null}
+      {modal?.type === 'confirm-archive' ? <ConfirmModal title="Archive Work Order" description="Archive hanya untuk WO yang sudah di-close. WO akan hilang dari daftar aktif, tetapi tetap tersedia di Laporan untuk evaluasi." confirmLabel="Archive WO" onClose={() => setModal(null)} onConfirm={() => archiveOrder(modal.workOrder)} /> : null}
       {modal?.type === 'confirm-cancel' ? <ConfirmModal title="Batalkan Draft" description="Draft tidak akan masuk antrean produksi. Hanya draft yang boleh dibatalkan." confirmLabel="Batalkan Draft" danger onClose={() => setModal(null)} onConfirm={() => cancelOrder(modal.workOrder)} /> : null}
 
       {toast ? <div className="toast">{toast}</div> : null}
@@ -1698,7 +1734,7 @@ function ReviewShortfallModal({ workOrder, shortfall, onClose, onSave }: { workO
   </Modal>
 }
 
-type ReportTab = 'daily' | 'overdue' | 'defects' | 'wip-aging' | 'operator' | 'machine' | 'customer'
+type ReportTab = 'daily' | 'finished' | 'overdue' | 'defects' | 'wip-aging' | 'operator' | 'machine' | 'customer'
 
 function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { workOrders: WorkOrder[]; directory: StaffDirectoryMember[]; team: TeamMember[]; clock: number; onOpenOrder: (order: WorkOrder) => void }) {
   const [tab, setTab] = useState<ReportTab>('daily')
@@ -1739,8 +1775,27 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
     row.seconds += getOrderActiveSeconds(order, clock)
   })
 
+  const finishedRows = filtered
+    .filter((order) => ['done', 'closed'].includes(deriveOrderStatus(order)) || Boolean(order.isArchived))
+    .map((order) => {
+      const finalStep = order.steps[order.steps.length - 1]
+      const finalGood = getPackingGood(order) || finalStep?.qtyGood || 0
+      const rejectTotal = order.steps.reduce((sum, step) => sum + step.qtyReject, 0)
+      const reworkTotal = order.steps.reduce((sum, step) => sum + step.qtyRework, 0)
+      const startedTimes = order.steps.map((step) => step.startedAt).filter(Boolean).map((value) => new Date(value as string).getTime())
+      const completedSteps = order.steps.filter((step) => deriveStepStatus(order, step) === 'completed')
+      const latestCompleted = order.steps.map((step) => step.completedAt).filter(Boolean).map((value) => new Date(value as string).getTime()).sort((a, b) => b - a)[0]
+      const createdMs = new Date(order.createdAt).getTime()
+      const finishedMs = order.closedAt ? new Date(order.closedAt).getTime() : latestCompleted
+      const leadTimeDays = finishedMs ? Math.max(0, Math.ceil((finishedMs - createdMs) / 86400000)) : 0
+      const lateDays = finishedMs ? Math.max(0, Math.ceil((finishedMs - new Date(`${order.dueDate}T23:59:59`).getTime()) / 86400000)) : 0
+      const productionSeconds = order.steps.reduce((sum, step) => sum + getStepTimerSeconds(step, clock), 0)
+      return { order, finalStep, finalGood, rejectTotal, reworkTotal, completedSteps, leadTimeDays, lateDays, productionSeconds, startedAt: startedTimes.length ? new Date(Math.min(...startedTimes)).toISOString() : undefined }
+    })
+
   const tabs: Array<{ id: ReportTab; label: string }> = [
     { id: 'daily', label: 'Produksi Harian' },
+    { id: 'finished', label: 'WO Selesai' },
     { id: 'overdue', label: 'WO Terlambat' },
     { id: 'defects', label: 'Reject & Defect' },
     { id: 'wip-aging', label: 'Aging Barang Proses' },
@@ -1763,6 +1818,20 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
       <div className="filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari WO, produk, atau customer" /></label><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="all">Semua tipe WO</option><option value="mto">MTO · Pesanan customer</option><option value="mts">MTS · Buat stok</option></select><select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)}><option value="all">Semua stasiun</option>{Object.entries(stationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
 
       {tab === 'daily' ? <ReportTable headers={['WO / Produk', 'Stasiun / PIC', 'Output', 'Status', 'Catatan']} rows={dailyRows.map(({ order, step }) => [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><Badge kind="station" value={step.station} /><small>{nameOf(step.assignedUserId)}</small></span>, <span><b>{formatNumber(step.qtyGood)}</b> baik · {formatNumber(step.qtyRework)} rework · {formatNumber(step.qtyReject)} reject</span>, <Badge kind="process" value={deriveStepStatus(order, step)} />, <span>{step.defectCategory ? defectCategoryLabels[step.defectCategory] : step.holdReason || 'Aktivitas / output saat ini'}</span>])} empty="Belum ada output atau proses aktif pada filter ini." /> : null}
+      {tab === 'finished' ? <div className="finished-report-list">{finishedRows.length ? finishedRows.map(({ order, finalStep, finalGood, rejectTotal, reworkTotal, completedSteps, leadTimeDays, lateDays, productionSeconds }) => <article className="finished-report-card" key={order.id}>
+        <header><div><p className="eyebrow">{order.code} · {order.type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer'}</p><h3>{order.product}</h3><span>{order.source}</span></div><Badge kind="status" value={deriveOrderStatus(order)} /></header>
+        <div className="finished-report-card__metrics">
+          <div><span>Target</span><b>{formatNumber(order.qty)}</b></div>
+          <div><span>{order.type === 'mts' ? 'Good stock' : 'Siap kirim'}</span><b>{formatNumber(finalGood)}</b></div>
+          <div><span>Reject</span><b className={rejectTotal ? 'text-danger' : ''}>{formatNumber(rejectTotal)}</b></div>
+          <div><span>Rework</span><b>{formatNumber(reworkTotal)}</b></div>
+          <div><span>Lead time</span><b>{leadTimeDays} hari</b></div>
+          <div><span>Ketepatan</span><b className={lateDays ? 'text-danger' : ''}>{lateDays ? `Telat ${lateDays} hari` : 'On time'}</b></div>
+        </div>
+        <div className="finished-report-card__processes">{order.steps.map((step) => <span key={step.id}><b>{step.name}</b><small>{nameOf(step.assignedUserId)} · {formatNumber(step.qtyGood)} baik · {formatNumber(step.qtyReject)} reject</small></span>)}</div>
+        <footer><span>Due {formatDate(order.dueDate)} · Closed {order.closedAt ? formatDate(order.closedAt) : 'belum close'} · Durasi aktif {formatDuration(productionSeconds)} · Proses selesai {completedSteps.length}/{order.steps.length}</span><button className="button button--secondary button--compact" onClick={() => onOpenOrder(order)}>Buka evaluasi</button></footer>
+        <div className="improvement-strip"><b>Catatan evaluasi</b><span>Isi root cause, action improvement, PIC follow-up, dan target selesai di iterasi laporan berikutnya.</span></div>
+      </article>) : <div className="empty-state">Belum ada WO selesai pada filter ini.</div>}</div> : null}
       {tab === 'overdue' ? <ReportTable headers={['WO', 'Target selesai', 'Proses saat ini', 'PIC', 'Blocker']} rows={overdueRows.map((order) => { const step = getCurrentProcess(order); return [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><b>{formatDate(order.dueDate)}</b><small>{Math.max(1, Math.ceil((Date.now() - new Date(`${order.dueDate}T23:59:59`).getTime()) / 86400000))} hari terlambat</small></span>, step ? <span><Badge kind="station" value={step.station} /><small>{step.name}</small></span> : '—', step ? nameOf(step.assignedUserId) : '—', getBlockerSummary(order) || 'Tidak ada blocker aktif'] })} empty="Tidak ada WO terlambat pada filter ini." /> : null}
       {tab === 'defects' ? <ReportTable headers={['WO', 'Stasiun / PIC', 'Kategori defect', 'Rework / reject', 'Bukti foto']} rows={defectRows.map(({ order, step }) => [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><Badge kind="station" value={step.station} /><small>{nameOf(step.assignedUserId)}</small></span>, step.defectCategory ? defectCategoryLabels[step.defectCategory] : 'Belum dikategorikan', <span>{formatNumber(step.qtyRework)} rework · <b>{formatNumber(step.qtyReject)} reject</b></span>, step.defectEvidence?.length ? <span className="evidence-thumb-row">{step.defectEvidence.map((item) => <img key={item.id} src={item.dataUrl} alt={item.name} title={item.name} />)}</span> : <span className="muted-copy">Tidak ada foto · opsional</span>])} empty="Belum ada defect atau reject pada filter ini." /> : null}
       {tab === 'wip-aging' ? <ReportTable headers={['Barang proses', 'WO / Produk', 'Qty tersedia', 'Langkah berikutnya', 'Usia WO']} rows={wipRows.map((row) => { const next = row.order.steps.find((step) => step.inputs.includes(row.input) && deriveStepStatus(row.order, step) !== 'completed'); const age = Math.max(0, Math.floor((Date.now() - new Date(row.order.createdAt).getTime()) / 86400000)); return [row.input, <button className="text-button" onClick={() => onOpenOrder(row.order)}>{row.order.code}<small>{row.order.product}</small></button>, formatNumber(row.available), next ? <span><Badge kind="station" value={next.station} /><small>{next.name}</small></span> : 'Tidak ada', <span className={age >= 2 ? 'text-danger' : ''}>{age} hari</span>] })} empty="Tidak ada barang proses aktif pada filter ini." /> : null}
