@@ -116,8 +116,9 @@ export function WorkOrderDrawer({
   const shortfallSummary = getShortfallSummary(workOrder)
   const pendingReworkQty = shortfallSummary.pendingReworkQty
   const hasPendingRework = pendingReworkQty > 0
-  const activeStep = hasPendingRework ? undefined : workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
-  const currentStep = hasPendingRework ? undefined : activeStep
+  const isTerminalFulfilled = status === 'done' || status === 'closed' || status === 'cancelled' || shortfallSummary.isFulfilled
+  const activeStep = hasPendingRework || isTerminalFulfilled ? undefined : workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
+  const currentStep = hasPendingRework || isTerminalFulfilled ? undefined : activeStep
     || workOrder.steps.find((step) => ['ready', 'waiting_wip', 'partial_paused'].includes(deriveStepStatus(workOrder, step)))
   const currentStation = hasPendingRework ? 'qc' : currentStep?.station || 'warehouse'
   const showLiveProcessIndicator = ['admin', 'ppic'].includes(currentUser.role) && Boolean(activeStep)
@@ -125,17 +126,19 @@ export function WorkOrderDrawer({
     ? 'Draft · belum dijadwalkan'
     : hasPendingRework
       ? 'Pending rework perlu diselesaikan'
-      : currentStep
+      : isTerminalFulfilled
+        ? (status === 'closed' ? 'WO sudah ditutup' : 'WO selesai diproses')
+        : currentStep
         ? `${currentStep.name} · ${stationLabels[currentStep.station]}`
-        : status === 'closed'
-          ? 'WO sudah ditutup'
-          : 'WO sudah selesai'
+        : 'Tidak ada proses aktif'
   const closeReadiness = getCloseReadiness(workOrder)
   const statusNote = status === 'draft'
     ? 'Admin atau PPIC perlu menetapkan alur, PIC, penerima laporan, dan area kerja sebelum WO dideploy.'
     : hasPendingRework
       ? `${formatNumber(pendingReworkQty)} unit pending rework harus diselesaikan atau diklasifikasikan sebelum WO selesai.`
-      : shortfallSummary.actionRequiredQty > 0
+      : isTerminalFulfilled
+        ? (status === 'closed' ? 'WO sudah read-only. Gunakan Laporan untuk evaluasi.' : 'Target WO sudah terpenuhi. Tidak ada proses lama yang boleh dijalankan ulang. PPIC dapat Close WO.')
+        : shortfallSummary.actionRequiredQty > 0
       ? `Kekurangan ${formatNumber(shortfallSummary.actionRequiredQty)} unit membutuhkan keputusan Admin / PPIC.`
       : shortfallSummary.replacementRemainingQty > 0
         ? `Penggantian ${formatNumber(shortfallSummary.replacementRemainingQty)} unit sedang berjalan.`
@@ -148,15 +151,13 @@ export function WorkOrderDrawer({
   const finalStepLabel = isStockProduction ? 'Masuk Gudang / Stok Tersedia' : 'Packing / Siap Kirim'
   const currentActionTitle = hasPendingRework
     ? 'Pending rework perlu diselesaikan'
-    : currentStep
+    : isTerminalFulfilled
+      ? (status === 'closed' ? 'WO sudah ditutup' : 'WO selesai diproses')
+      : currentStep
       ? deriveStepStatus(workOrder, currentStep) === 'in_progress'
         ? `${currentStep.name} sedang dikerjakan`
         : `${currentStep.name} siap ditindaklanjuti`
-      : status === 'done'
-        ? `${finalStepLabel} selesai`
-        : status === 'closed'
-          ? 'WO sudah ditutup'
-          : 'Tidak ada aksi aktif'
+      : 'Tidak ada aksi aktif'
   const artworkImages = workOrder.referenceImages || []
   const finalArtwork = getApprovedPrimaryArtwork(workOrder)
   const artworkReadiness = getArtworkReadiness(workOrder)
@@ -209,9 +210,9 @@ export function WorkOrderDrawer({
           <div className="current-action-panel__copy">
             <p className="eyebrow">Aksi saat ini</p>
             <h3>{currentActionTitle}</h3>
-            {hasPendingRework ? <p><b>{formatNumber(pendingReworkQty)} unit</b> belum bisa dihitung selesai. Pilih hasil akhirnya: stok baik, Grade B, Hold Sortir, atau Scrap.</p> : currentStep ? <p>PIC: <b>{getMemberName(currentStep.assignedUserId, team, staffDirectory)}</b> · Input proses: <b>{currentStep.inputs.length ? currentStep.inputs.join(', ') : 'Mulai langsung'}</b></p> : <p>{status === 'closed' ? 'WO sudah read-only. Gunakan Laporan untuk evaluasi.' : 'Tidak ada proses yang menunggu tindakan.'}</p>}
+            {hasPendingRework ? <p><b>{formatNumber(pendingReworkQty)} unit</b> belum bisa dihitung selesai. Pilih hasil akhirnya: stok baik, Grade B, Hold Sortir, atau Scrap.</p> : isTerminalFulfilled ? <p>{status === 'closed' ? 'WO sudah read-only. Gunakan Laporan untuk evaluasi.' : 'Semua kuantitas sudah terpenuhi. Proses lama dikunci agar tidak terjadi input ganda.'}</p> : currentStep ? <p>PIC: <b>{getMemberName(currentStep.assignedUserId, team, staffDirectory)}</b> · Input proses: <b>{currentStep.inputs.length ? currentStep.inputs.join(', ') : 'Mulai langsung'}</b></p> : <p>Tidak ada proses yang menunggu tindakan.</p>}
           </div>
-          {hasPendingRework && ['admin', 'ppic'].includes(currentUser.role) ? <button type="button" className="button button--warning" onClick={onResolveRework}>Selesaikan rework</button> : currentStep ? <div className="current-action-panel__metric"><span>Kapasitas saat ini</span><b>{Number.isFinite(getAvailableInputCap(workOrder, currentStep)) ? `${formatNumber(getAvailableInputCap(workOrder, currentStep))} unit` : 'Siap'}</b></div> : null}
+          {hasPendingRework && ['admin', 'ppic'].includes(currentUser.role) ? <button type="button" className="button button--warning" onClick={onResolveRework}>Selesaikan rework</button> : isTerminalFulfilled ? <div className="current-action-panel__metric current-action-panel__metric--done"><span>Status</span><b>{status === 'closed' ? 'Read-only' : 'Siap Close WO'}</b></div> : currentStep ? <div className="current-action-panel__metric"><span>Kapasitas saat ini</span><b>{Number.isFinite(getAvailableInputCap(workOrder, currentStep)) ? `${formatNumber(getAvailableInputCap(workOrder, currentStep))} unit` : 'Siap'}</b></div> : null}
         </section>
 
         <section className="drawer-section">
@@ -295,9 +296,9 @@ export function WorkOrderDrawer({
             {visibleProcessTickets.length ? visibleProcessTickets.map((step) => {
               const stepStatus = deriveStepStatus(workOrder, step)
               const inputCap = getAvailableInputCap(workOrder, step)
-              const canOperate = canOperateStep(currentUser, step)
+              const canOperate = !isTerminalFulfilled && canOperateStep(currentUser, step)
               const normalActionBlockedByRework = hasPendingRework && stepStatus !== 'in_progress'
-              const canAssign = ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
+              const canAssign = !isTerminalFulfilled && ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
               const performerAccessMode = getMemberAccessMode(step.assignedUserId, staffDirectory)
               const isAdminAssisted = performerAccessMode === 'admin_assisted' && ['admin', 'ppic'].includes(currentUser.role)
               const isPrinting = step.station === 'printing'
@@ -336,6 +337,7 @@ export function WorkOrderDrawer({
                 {isPrinting && artworkApprovalRequired && !finalArtwork ? <div className="printing-final-panel printing-final-panel--blocked"><Icon name="warning" /><div><b>Printing diblokir</b><small>{artworkReadiness.reason}</small></div></div> : null}
                 {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
                 {isAdminAssisted ? <div className="assisted-progress-box"><Icon name="user" /><span><b>Update dibantu Admin/PPIC.</b> PIC aktual tetap {getMemberName(step.assignedUserId, team, staffDirectory)}, tetapi progress dicatat oleh akun yang sedang login.</span></div> : null}
+                {isTerminalFulfilled ? <div className="process-ticket__locked-note"><Icon name="check" /> WO sudah terpenuhi. Tiket proses dikunci untuk mencegah input ganda.</div> : null}
                 <footer className="process-ticket__footer"><div className="process-ticket__actions">
                   {canAssign ? <button className="button button--secondary" onClick={() => onAssign(step)}>Atur PIC</button> : null}
                   {canOperate && !normalActionBlockedByRework && ['ready', 'partial_paused'].includes(stepStatus) ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {stepStatus === 'partial_paused' ? 'Lanjutkan proses' : isPrinting ? (artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : isAdminAssisted ? 'Mulai atas nama PIC' : 'Mulai proses'}</button> : null}
