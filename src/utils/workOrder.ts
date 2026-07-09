@@ -285,8 +285,15 @@ export const getAvailableInputCap = (workOrder: WorkOrder, step: ProcessStep) =>
 
 export const getStepRemaining = (step: ProcessStep) => Math.max(0, step.plannedQty - getStepResolvedQty(step))
 
+export const isWorkOrderFulfilled = (workOrder: WorkOrder) => getShortfallSummary(workOrder).isFulfilled
+
 export const deriveStepStatus = (workOrder: WorkOrder, step: ProcessStep): ProcessStatus => {
   if (['draft', 'closed', 'cancelled'].includes(workOrder.status)) return 'not_ready'
+
+  // Once the WO target is fulfilled, the workflow is terminal. Older partial
+  // tickets must stay visible for audit, but they must not remain startable.
+  if (workOrder.status === 'done' || isWorkOrderFulfilled(workOrder)) return 'completed'
+
   if (step.holdReason) return 'hold'
   if (step.status === 'in_progress') return 'in_progress'
   if (getStepResolvedQty(step) >= step.plannedQty && getStepPendingReworkQty(step) === 0) return 'completed'
@@ -298,7 +305,9 @@ export const deriveStepStatus = (workOrder: WorkOrder, step: ProcessStep): Proce
 }
 
 export const getCurrentProcess = (workOrder: WorkOrder) => {
-  if (getOrderPendingReworkQty(workOrder) > 0) return undefined
+  const summary = getShortfallSummary(workOrder)
+  if (['done', 'closed', 'cancelled'].includes(workOrder.status) || summary.isFulfilled) return undefined
+  if (summary.pendingReworkQty > 0) return undefined
   const running = workOrder.steps.find((step) => deriveStepStatus(workOrder, step) === 'in_progress')
   if (running) return running
   const ready = workOrder.steps.find((step) => ['ready', 'waiting_wip', 'partial_paused'].includes(deriveStepStatus(workOrder, step)))
