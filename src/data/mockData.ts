@@ -91,10 +91,10 @@ export const workAreas = [
 ]
 
 export const routeTemplates: RouteTemplate[] = [
-  { id: 'direct', title: 'Produk langsung', description: 'Buat produk → QC akhir → Packing. Untuk produk sederhana atau proses satu meja.' },
-  { id: 'print-sew', title: 'Cetak lalu jahit', description: 'Cetak → Potong → Jahit/Rakit → QC akhir → Packing.' },
+  { id: 'direct', title: 'Produk langsung', description: 'Buat produk → QC akhir → finalisasi. Untuk produk sederhana atau proses satu meja.' },
+  { id: 'print-sew', title: 'Cetak lalu jahit', description: 'Cetak → Potong → Jahit/Rakit → QC akhir → finalisasi.' },
   { id: 'multi-part', title: 'Banyak komponen', description: 'Cetak/Potong berjalan bersama furing dan resleting; jahit menunggu semua komponen.' },
-  { id: 'custom', title: 'Atur alur sendiri', description: 'Pilih proses yang dibutuhkan. QC akhir dan packing tetap ditambahkan otomatis.' },
+  { id: 'custom', title: 'Atur alur sendiri', description: 'Pilih proses yang dibutuhkan. QC akhir dan langkah final ditambahkan otomatis.' },
 ]
 
 const step = (
