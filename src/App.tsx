@@ -498,6 +498,11 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     setSelectedId(order.id)
   }
 
+  const openModalFromWorkOrderDetail = (nextModal: Exclude<ModalState, null>) => {
+    setSelectedId(null)
+    setModal(nextModal)
+  }
+
   const beginStep = async (order: WorkOrder, step: ProcessStep, artworkImageId?: string) => {
     const status = deriveStepStatus(order, step)
     if (status !== 'ready') return showToast('Proses belum siap. Periksa input proses atau HOLD terlebih dahulu.')
@@ -813,20 +818,20 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         staffDirectory={staffDirectory}
         clock={clock}
         onClose={() => { setModal(null); setSelectedId(null) }}
-        onSchedule={() => setModal({ type: 'schedule', workOrder: selectedWorkOrder })}
-        onAssign={(step) => setModal({ type: 'assign', workOrder: selectedWorkOrder, step })}
-        onStart={(step) => setModal({ type: 'confirm-start', workOrder: selectedWorkOrder, step })}
+        onSchedule={() => openModalFromWorkOrderDetail({ type: 'schedule', workOrder: selectedWorkOrder })}
+        onAssign={(step) => openModalFromWorkOrderDetail({ type: 'assign', workOrder: selectedWorkOrder, step })}
+        onStart={(step) => openModalFromWorkOrderDetail({ type: 'confirm-start', workOrder: selectedWorkOrder, step })}
         onPause={(step) => pauseStep(selectedWorkOrder, step)}
-        onLogResult={(step) => setModal({ type: 'log-result', workOrder: selectedWorkOrder, step })}
-        onHold={(step) => setModal({ type: 'hold', workOrder: selectedWorkOrder, step })}
+        onLogResult={(step) => openModalFromWorkOrderDetail({ type: 'log-result', workOrder: selectedWorkOrder, step })}
+        onHold={(step) => openModalFromWorkOrderDetail({ type: 'hold', workOrder: selectedWorkOrder, step })}
         onResume={(step) => resumeStep(selectedWorkOrder, step)}
-        onQcDecision={(step) => setModal({ type: 'qc', workOrder: selectedWorkOrder, step })}
-        onCloseOrder={() => setModal({ type: 'confirm-close', workOrder: selectedWorkOrder })}
-        onArchiveOrder={() => setModal({ type: 'confirm-archive', workOrder: selectedWorkOrder })}
-        onCancel={() => setModal({ type: 'confirm-cancel', workOrder: selectedWorkOrder })}
-        onManageArtwork={() => setModal({ type: 'manage-artwork', workOrder: selectedWorkOrder })}
-        onResolveShortfall={(shortfall) => setModal({ type: 'shortfall-action', workOrder: selectedWorkOrder, shortfall })}
-        onReviewShortfall={(shortfall) => setModal({ type: 'review-shortfall', workOrder: selectedWorkOrder, shortfall })}
+        onQcDecision={(step) => openModalFromWorkOrderDetail({ type: 'qc', workOrder: selectedWorkOrder, step })}
+        onCloseOrder={() => openModalFromWorkOrderDetail({ type: 'confirm-close', workOrder: selectedWorkOrder })}
+        onArchiveOrder={() => openModalFromWorkOrderDetail({ type: 'confirm-archive', workOrder: selectedWorkOrder })}
+        onCancel={() => openModalFromWorkOrderDetail({ type: 'confirm-cancel', workOrder: selectedWorkOrder })}
+        onManageArtwork={() => openModalFromWorkOrderDetail({ type: 'manage-artwork', workOrder: selectedWorkOrder })}
+        onResolveShortfall={(shortfall) => openModalFromWorkOrderDetail({ type: 'shortfall-action', workOrder: selectedWorkOrder, shortfall })}
+        onReviewShortfall={(shortfall) => openModalFromWorkOrderDetail({ type: 'review-shortfall', workOrder: selectedWorkOrder, shortfall })}
       /> : null}
 
       {modal?.type === 'create' ? <CreateWorkOrderModal
