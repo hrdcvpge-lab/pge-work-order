@@ -106,6 +106,7 @@ export interface ProcessStep {
   qtyReject: number
   activeSeconds: number
   startedAt?: string
+  completedAt?: string
   location?: string
   holdReason?: string
   artworkConfirmedBy?: string
