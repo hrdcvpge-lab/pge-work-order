@@ -153,6 +153,30 @@ function mapStep(row: DbStepRow, stationsById: Map<string, DbStationRow>): Proce
 
 function mapWorkOrder(row: DbWorkOrderRow, stationsById: Map<string, DbStationRow>): WorkOrder {
   const source = row.source_detail || row.source_type || '-'
+  const steps = [...(row.work_order_steps || [])]
+    .sort((left, right) => left.sequence_no - right.sequence_no)
+    .map((step) => mapStep(step, stationsById))
+
+  const finalIndex = steps.length - 1
+  if (finalIndex >= 0) {
+    const finalStep = steps[finalIndex]
+    if (row.wo_type === 'mts') {
+      steps[finalIndex] = {
+        ...finalStep,
+        name: 'Masuk Gudang / Stok Tersedia',
+        station: 'warehouse',
+        inputs: finalStep.inputs.length ? finalStep.inputs : ['Produk lolos QC'],
+        output: 'Stok tersedia',
+        location: finalStep.location?.toLowerCase().includes('packing') ? 'Area Warehouse / Material' : finalStep.location,
+      }
+    } else if (row.wo_type === 'mto' && finalStep.station === 'packing') {
+      steps[finalIndex] = {
+        ...finalStep,
+        name: 'Packing / Siap Kirim',
+        output: 'Produk siap kirim',
+      }
+    }
+  }
 
   return {
     id: row.id,
@@ -178,9 +202,7 @@ function mapWorkOrder(row: DbWorkOrderRow, stationsById: Map<string, DbStationRo
     reworkCount: 0,
     createdAt: row.created_at,
     createdBy: row.created_by,
-    steps: [...(row.work_order_steps || [])]
-      .sort((left, right) => left.sequence_no - right.sequence_no)
-      .map((step) => mapStep(step, stationsById)),
+    steps,
     shortfalls: [],
     history: [],
   }
