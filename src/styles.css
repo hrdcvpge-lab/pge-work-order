@@ -2220,3 +2220,178 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
   width: 16px;
   height: 16px;
 }
+
+/* v0.4.10.3 — process accordion simplification */
+.process-accordion-section {
+  padding-bottom: 22px;
+}
+
+.wo-detail-modal .route-flow--accordion {
+  width: min(820px, 100%);
+  margin: 14px auto 0;
+  display: grid;
+  gap: 10px;
+  overflow: visible;
+  padding: 0;
+}
+
+.wo-detail-modal .route-flow__group--accordion {
+  display: block;
+  position: relative;
+  padding-left: 0;
+}
+
+.wo-detail-modal .route-flow__group--accordion .route-flow__arrow {
+  display: block;
+  margin: 0 0 6px 26px;
+  width: 18px;
+  height: 18px;
+  color: #b8b8b2;
+}
+
+.wo-detail-modal .route-card--clickable {
+  appearance: none;
+  border: 1px solid #e5e7eb;
+  border-left-width: 5px;
+  border-radius: 14px;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "seq title badges toggle"
+    "seq station badges toggle";
+  align-items: center;
+  gap: 4px 12px;
+  padding: 13px 14px;
+  text-align: left;
+  cursor: pointer;
+  background: #fff;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.wo-detail-modal .route-card--clickable:hover,
+.wo-detail-modal .route-card--clickable:focus-visible {
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .08);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.wo-detail-modal .route-card--clickable > span {
+  grid-area: seq;
+  color: #7c818a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.wo-detail-modal .route-card--clickable b {
+  grid-area: title;
+  color: #1f2937;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.wo-detail-modal .route-card--clickable small {
+  grid-area: station;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.wo-detail-modal .route-card--clickable .route-card__badges {
+  grid-area: badges;
+  justify-content: flex-end;
+}
+
+.route-card__toggle {
+  grid-area: toggle;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.wo-detail-modal .route-card--expanded {
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, .12), 0 12px 30px rgba(15, 23, 42, .08);
+}
+
+.wo-detail-modal .route-card--expanded .route-card__toggle {
+  background: #ffbb00;
+  color: #111827;
+}
+
+.wo-detail-modal .route-step-detail {
+  width: 100%;
+  margin: 8px 0 16px;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.wo-detail-modal .route-step-detail > header {
+  padding: 14px 16px 12px;
+}
+
+.wo-detail-modal .route-step-detail__metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 14px 16px 0;
+}
+
+.wo-detail-modal .route-step-detail__input-panel {
+  padding-left: 16px;
+  padding-right: 16px;
+  grid-template-columns: minmax(170px, .9fr) minmax(220px, 1.1fr) minmax(170px, .9fr);
+}
+
+.wo-detail-modal .route-step-detail .printing-final-panel,
+.wo-detail-modal .route-step-detail .hold-box,
+.wo-detail-modal .route-step-detail .assisted-progress-box,
+.wo-detail-modal .route-step-detail .process-ticket__locked-note {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.wo-detail-modal .route-step-detail .process-ticket__footer {
+  padding: 12px 16px 14px;
+}
+
+.assignment-scope-banner--compact {
+  width: min(820px, 100%);
+  margin: 12px auto 0;
+}
+
+@media (max-width: 820px) {
+  .wo-detail-modal .route-flow--accordion {
+    width: 100%;
+  }
+
+  .wo-detail-modal .route-card--clickable {
+    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-areas:
+      "seq title"
+      "seq station"
+      "badges badges"
+      "toggle toggle";
+    align-items: start;
+  }
+
+  .wo-detail-modal .route-card--clickable .route-card__badges {
+    justify-content: flex-start;
+  }
+
+  .route-card__toggle {
+    width: 100%;
+  }
+
+  .wo-detail-modal .route-step-detail__metrics,
+  .wo-detail-modal .route-step-detail__input-panel {
+    grid-template-columns: 1fr;
+  }
+}
