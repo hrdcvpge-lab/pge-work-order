@@ -1600,6 +1600,17 @@ function getDefaultReportToUserId(directory: StaffDirectoryMember[], team: TeamM
   return receivers.find((member) => member.name.toLowerCase().includes('ppic'))?.id || receivers[0]?.id || ''
 }
 
+function getDefaultReportToForAssignee(assigneeId: string | undefined, directory: StaffDirectoryMember[], _team: TeamMember[] = []) {
+  if (!assigneeId) return ''
+  const assignee = directory.find((member) => member.id === assigneeId)
+  return assignee?.defaultReportToUserId || ''
+}
+
+function getDefaultAreaForAssignee(assigneeId: string | undefined, station: Station, directory: StaffDirectoryMember[]) {
+  const assignee = directory.find((member) => member.id === assigneeId)
+  return assignee?.defaultWorkArea || defaultLocationForStation(station)
+}
+
 function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, onSave }: {
   workOrder: WorkOrder
   staffDirectory: StaffDirectoryMember[]
@@ -1612,19 +1623,45 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
   const [plannedSteps, setPlannedSteps] = useState<ProcessStep[]>(() => workOrder.steps.map((step) => ({
     ...step,
     scheduledDate: step.scheduledDate || workOrder.scheduledDate || new Date().toISOString().slice(0, 10),
-    reportToUserId: step.reportToUserId || getDefaultReportToUserId(directory, team),
-    location: step.location || defaultLocationForStation(step.station),
+    reportToUserId: step.reportToUserId || (step.assignedUserId ? getDefaultReportToForAssignee(step.assignedUserId, directory, team) : ''),
+    location: step.location || getDefaultAreaForAssignee(step.assignedUserId, step.station, directory),
   })))
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const artworkReadiness = getArtworkReadiness(workOrder)
 
   const updatePlan = (stepId: string, patch: Partial<ProcessStep>) => {
-    setPlannedSteps((current) => current.map((step) => step.id === stepId ? {
-      ...step,
-      ...patch,
-      location: patch.station && !step.location ? defaultLocationForStation(patch.station) : patch.location ?? step.location,
-    } : step))
+    setPlannedSteps((current) => current.map((step) => {
+      if (step.id !== stepId) return step
+
+      const nextStation = patch.station || step.station
+      const nextAssignedUserId = patch.assignedUserId !== undefined ? patch.assignedUserId : step.assignedUserId
+      const selectedAssignee = directory.find((member) => member.id === nextAssignedUserId)
+      const selectedAssigneeCanWorkStation = Boolean(selectedAssignee?.allowedStations?.includes(nextStation))
+      const assigneeChanged = patch.assignedUserId !== undefined && patch.assignedUserId !== step.assignedUserId
+      const stationChanged = patch.station !== undefined && patch.station !== step.station
+      const shouldClearAssignee = stationChanged && nextAssignedUserId && !selectedAssigneeCanWorkStation
+      const finalAssignedUserId = shouldClearAssignee ? '' : nextAssignedUserId
+      const autoReportToUserId = finalAssignedUserId ? getDefaultReportToForAssignee(finalAssignedUserId, directory, team) : ''
+      const autoLocation = finalAssignedUserId ? getDefaultAreaForAssignee(finalAssignedUserId, nextStation, directory) : defaultLocationForStation(nextStation)
+
+      return {
+        ...step,
+        ...patch,
+        station: nextStation,
+        assignedUserId: finalAssignedUserId,
+        reportToUserId: patch.reportToUserId !== undefined
+          ? patch.reportToUserId
+          : assigneeChanged || shouldClearAssignee
+            ? autoReportToUserId
+            : step.reportToUserId || autoReportToUserId,
+        location: patch.location !== undefined
+          ? patch.location
+          : assigneeChanged || stationChanged || shouldClearAssignee
+            ? autoLocation
+            : step.location || autoLocation,
+      }
+    }))
   }
 
   const deploy = async () => {
@@ -1661,9 +1698,9 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
             <div className="deployment-step__sequence">P{String(index + 1).padStart(2, '0')}</div>
             <div className="deployment-step__process"><b>{step.name}</b><span>{step.inputs.length ? `Butuh: ${step.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {step.output}</span></div>
             <label><span>Tanggal rencana *</span><input type="date" value={step.scheduledDate || scheduledDate} onChange={(event) => updatePlan(step.id, { scheduledDate: event.target.value })} /></label>
-            <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station, location: defaultLocationForStation(event.target.value as Station) })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-            <label><span className="field-label-with-help">PIC pelaksana *<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Hanya PIC yang punya akses ke stasiun ini yang bisa dipilih. Atur akses personel di menu People & Station.</span></span></span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
-            <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></label>
+            <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+            <label><span className="field-label-with-help">PIC pelaksana *<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Hanya PIC yang punya akses ke stasiun ini yang bisa dipilih. Default lapor ke dan area kerja akan mengikuti pengaturan People & Station.</span></span></span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+            <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select>{step.assignedUserId && !directory.find((member) => member.id === step.assignedUserId)?.defaultReportToUserId ? <small className="field-hint field-hint--warning">PIC ini belum punya default lapor ke. Pilih manual atau atur di People & Station.</small> : null}</label>
             <label><span>Area kerja / laporan hasil *</span><select value={step.location || ''} onChange={(event) => updatePlan(step.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
           </article>)}
         </div>
@@ -1676,12 +1713,20 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
 
 function AssignProcessModal({ workOrder, step, staffDirectory: directory, team, onClose, onSave }: { workOrder: WorkOrder; step: ProcessStep; staffDirectory: StaffDirectoryMember[]; team: TeamMember[]; onClose: () => void; onSave: (data: { assignedUserId: string; reportToUserId: string; location: string }) => void }) {
   const [assignedUserId, setAssignedUserId] = useState(step.assignedUserId || '')
-  const [reportToUserId, setReportToUserId] = useState(step.reportToUserId || getDefaultReportToUserId(directory, team))
-  const [location, setLocation] = useState(step.location || defaultLocationForStation(step.station))
+  const [reportToUserId, setReportToUserId] = useState(step.reportToUserId || getDefaultReportToForAssignee(step.assignedUserId, directory, team))
+  const [location, setLocation] = useState(step.location || getDefaultAreaForAssignee(step.assignedUserId, step.station, directory))
+  const selectedAssignee = directory.find((member) => member.id === assignedUserId)
+  const selectAssignee = (nextAssignedUserId: string) => {
+    setAssignedUserId(nextAssignedUserId)
+    setReportToUserId(getDefaultReportToForAssignee(nextAssignedUserId, directory, team))
+    setLocation(getDefaultAreaForAssignee(nextAssignedUserId, step.station, directory))
+  }
+
   return <Modal title="Atur PIC & jalur laporan" subtitle="Gunakan daftar Team PGE agar penugasan konsisten. Perubahan ini hanya boleh sebelum proses mempunyai hasil atau timer." onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave({ assignedUserId, reportToUserId, location }) }}>
       <div className="callout"><Icon name="station" /><span><b>{workOrder.code}</b> · {step.name} · {stationLabels[step.station]}</span></div>
-      <label><span className="field-label-with-help">PIC pelaksana<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Tiket proses hanya tampil pada akun PIC yang dipilih. Personel harus diaktifkan untuk stasiun ini di People & Station.</span></span></span><select required value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+      <label><span className="field-label-with-help">PIC pelaksana<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Tiket proses hanya tampil pada akun PIC yang dipilih. Default lapor ke dan area kerja akan mengikuti People & Station, tetapi masih bisa diubah manual.</span></span></span><select required value={assignedUserId} onChange={(event) => selectAssignee(event.target.value)}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+      {assignedUserId && !selectedAssignee?.defaultReportToUserId ? <div className="callout callout--warning"><Icon name="warning" /><span>PIC ini belum punya default lapor ke di People & Station. Pilih penerima laporan manual atau lengkapi default-nya sebelum deploy berikutnya.</span></div> : null}
       <label><span>Lapor ke</span><select required value={reportToUserId} onChange={(event) => setReportToUserId(event.target.value)}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
       <label><span>Area kerja / laporan hasil</span><select required value={location} onChange={(event) => setLocation(event.target.value)}><option value="">Pilih area</option>{workAreas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label>
       <footer className="modal-card__footer"><button type="button" className="button button--secondary" onClick={onClose}>Batal</button><button type="submit" className="button button--primary">Simpan penugasan</button></footer>

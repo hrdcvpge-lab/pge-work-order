@@ -3552,3 +3552,16 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
     padding: 4px 7px;
   }
 }
+
+/* v0.4.10.15 — default report-to warning hint */
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #6b7280;
+}
+
+.field-hint--warning {
+  color: #92400e;
+}
