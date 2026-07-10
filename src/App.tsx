@@ -1981,6 +1981,7 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
   const [expandedReportOrderId, setExpandedReportOrderId] = useState<string | null>(null)
   const [printMode, setPrintMode] = useState<'report' | 'wo'>('report')
   const [printTargetOrderId, setPrintTargetOrderId] = useState<string | null>(null)
+  const [pendingPrintMode, setPendingPrintMode] = useState<'report' | 'wo' | null>(null)
   const directoryRows = getCombinedDirectory(directory, team)
   const nameOf = (id?: string) => getDirectoryName(id, directoryRows, 'Belum ditugaskan')
   const needle = search.trim().toLowerCase()
@@ -2073,18 +2074,50 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
   const selectedPrintFinalGood = selectedPrintOrder ? (getPackingGood(selectedPrintOrder) || selectedPrintFinalStep?.qtyGood || 0) : 0
   const selectedPrintRejectTotal = selectedPrintOrder ? selectedPrintOrder.steps.reduce((sum, step) => sum + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0) : 0
   const selectedPrintActiveStep = selectedPrintOrder ? getCurrentProcess(selectedPrintOrder) : undefined
-  const printAfterStateUpdate = () => {
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()))
-  }
+
+  useEffect(() => {
+    if (!pendingPrintMode) return
+
+    if (pendingPrintMode === 'wo' && !selectedPrintOrder) {
+      setPendingPrintMode(null)
+      setPrintMode('report')
+      setPrintTargetOrderId(null)
+      return
+    }
+
+    document.body.classList.add('pge-printing')
+
+    const afterPrint = () => {
+      window.setTimeout(() => {
+        document.body.classList.remove('pge-printing')
+        setPendingPrintMode(null)
+        setPrintMode('report')
+        setPrintTargetOrderId(null)
+      }, 0)
+    }
+
+    window.addEventListener('afterprint', afterPrint)
+
+    const printTimer = window.setTimeout(() => {
+      window.print()
+    }, 180)
+
+    return () => {
+      window.clearTimeout(printTimer)
+      window.removeEventListener('afterprint', afterPrint)
+      document.body.classList.remove('pge-printing')
+    }
+  }, [pendingPrintMode, selectedPrintOrder])
+
   const printReport = () => {
     setPrintMode('report')
     setPrintTargetOrderId(null)
-    printAfterStateUpdate()
+    setPendingPrintMode('report')
   }
   const printWorkOrder = (order: WorkOrder) => {
     setPrintMode('wo')
     setPrintTargetOrderId(order.id)
-    printAfterStateUpdate()
+    setPendingPrintMode('wo')
   }
 
   return <section className="view-content reports-view">
