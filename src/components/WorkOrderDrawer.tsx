@@ -87,6 +87,30 @@ function approvalClass(image: WorkOrderReferenceImage) {
   return 'artwork-status artwork-status--pending'
 }
 
+
+const escapeHtml = (value: unknown) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+
+function printWorkOrderDocument(workOrder: WorkOrder, team: TeamMember[], staffDirectory: StaffDirectoryMember[]) {
+  const directoryName = (id?: string, fallback = 'Belum ditetapkan') => getMemberName(id, team, staffDirectory, fallback)
+  const status = deriveOrderStatus(workOrder)
+  const summary = getShortfallSummary(workOrder)
+  const finalStep = getFinalProcessStep(workOrder)
+  const finalGood = getPackingGood(workOrder) || finalStep?.qtyGood || 0
+  const rejectTotal = workOrder.steps.reduce((total, step) => total + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0)
+  const rows = workOrder.steps.map((step) => `<tr><td>P${String(step.sequence).padStart(2, '0')}</td><td>${escapeHtml(step.name)}</td><td>${escapeHtml(stationLabels[step.station])}</td><td>${escapeHtml(directoryName(step.assignedUserId))}</td><td>${escapeHtml(directoryName(step.reportToUserId))}</td><td>${escapeHtml(step.location || 'Belum ditetapkan')}</td><td>${escapeHtml(step.scheduledDate ? formatDate(step.scheduledDate) : 'Belum dijadwalkan')}</td><td>${escapeHtml(formatNumber(step.qtyGood))}</td><td>${escapeHtml(formatNumber(step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step)))}</td></tr>`).join('')
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(workOrder.code)} - Work Order</title><style>
+    *{box-sizing:border-box} body{font-family:Arial, sans-serif;margin:0;padding:28px;color:#111827;background:#fff} .doc{max-width:900px;margin:0 auto}.head{display:flex;justify-content:space-between;gap:24px;border-bottom:3px solid #871719;padding-bottom:14px}.brand b{font-size:18px;color:#871719}.brand h1{margin:8px 0 0;font-size:26px}.meta{text-align:right;font-size:12px;color:#4b5563}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.box{border:1px solid #d1d5db;border-radius:8px;padding:10px}.box span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:#6b7280}.box b{display:block;margin-top:5px;font-size:15px} h2{font-size:15px;margin:22px 0 8px} table{width:100%;border-collapse:collapse;font-size:11px} th,td{border:1px solid #d1d5db;padding:7px;text-align:left;vertical-align:top} th{background:#f9fafb;text-transform:uppercase;font-size:9px;color:#4b5563}.approval{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}.sign{border:1px solid #d1d5db;border-radius:8px;min-height:92px;padding:10px}.sign small{color:#6b7280}.foot{margin-top:18px;font-size:10px;color:#6b7280}@media print{body{padding:0}.doc{max-width:none}.no-print{display:none}}
+  </style></head><body><main class="doc"><section class="head"><div class="brand"><b>CV Pusat Grosir Eceran</b><h1>WORK ORDER PRODUKSI</h1><span>${escapeHtml(workOrder.type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer')}</span></div><div class="meta"><b>${escapeHtml(workOrder.code)}</b><br/>Status: ${escapeHtml(status)}<br/>Dicetak: ${escapeHtml(new Date().toLocaleString('id-ID'))}</div></section><section class="grid"><div class="box"><span>Produk</span><b>${escapeHtml(workOrder.product)}</b></div><div class="box"><span>Target</span><b>${escapeHtml(formatNumber(workOrder.qty))} unit</b></div><div class="box"><span>Due date</span><b>${escapeHtml(formatDate(workOrder.dueDate))}</b></div><div class="box"><span>Prioritas</span><b>${escapeHtml(workOrder.priority.toUpperCase())}</b></div><div class="box"><span>Sumber</span><b>${escapeHtml(workOrder.source)}</b></div><div class="box"><span>Final baik</span><b>${escapeHtml(formatNumber(finalGood))}</b></div><div class="box"><span>Reject/Klasifikasi</span><b>${escapeHtml(formatNumber(rejectTotal))}</b></div><div class="box"><span>Extra / Rework</span><b>+${escapeHtml(formatNumber(summary.extraQty))} / ${escapeHtml(formatNumber(summary.pendingReworkQty))}</b></div></section><h2>Rute & Penugasan</h2><table><thead><tr><th>No</th><th>Proses</th><th>Stasiun</th><th>PIC</th><th>Lapor ke</th><th>Area</th><th>Rencana</th><th>Output</th><th>Reject</th></tr></thead><tbody>${rows}</tbody></table><h2>Catatan Produksi</h2><table><tbody><tr><th>Referensi</th><td>${escapeHtml(workOrder.referenceNote || '-')}</td></tr><tr><th>Blocker</th><td>${escapeHtml(getBlockerSummary(workOrder) || 'Tidak ada blocker aktif')}</td></tr><tr><th>Final</th><td>${escapeHtml(workOrder.type === 'mts' ? 'Masuk Gudang / Stok Tersedia' : 'Packing / Siap Kirim')}</td></tr></tbody></table><section class="approval"><div class="sign"><b>Dibuat / Dijadwalkan</b><br/><small>Nama & tanda tangan</small></div><div class="sign"><b>Close oleh PPIC</b><br/><small>Nama & tanda tangan</small></div></section><p class="foot">Dokumen ini dihasilkan dari sistem PGE WO Control. Gunakan untuk audit produksi, bukan sebagai screenshot modal.</p></main><script>window.onload=()=>window.print()</script></body></html>`
+  const printWindow = window.open('', '_blank', 'width=960,height=720')
+  if (!printWindow) return
+  printWindow.document.write(html)
+  printWindow.document.close()
+}
+
 export function WorkOrderDrawer({
   workOrder,
   currentUser,
@@ -282,23 +306,20 @@ export function WorkOrderDrawer({
         </header>
 
         <div className="wo-detail-modal__body">
-        <section className={`drawer-status-band drawer-status-band--station-${currentStation}${showLiveProcessIndicator ? ' drawer-status-band--live' : ''}`}>
-          <div>
+        <section className={`drawer-section wo-current-summary wo-current-summary--station-${currentStation}${showLiveProcessIndicator ? ' wo-current-summary--live' : ''}`}>
+          <div className="wo-current-summary__main">
             <div className="drawer-status-band__topline"><Badge kind="status" value={status} /><Badge kind="priority" value={workOrder.priority} /><Badge kind="type" value={workOrder.type} />{currentStep ? <Badge kind="station" value={currentStep.station} /> : null}</div>
-            <strong>{statusHeadline}</strong>
-            {showLiveProcessIndicator ? <em className="live-process-banner">● Proses aktif sekarang</em> : null}
-            <span>{statusNote}</span>
-          </div>
-          <div className="drawer-progress-number"><b>{progress}%</b><span>{isStockProduction ? 'Progress masuk gudang' : 'Progress siap kirim'}</span></div>
-        </section>
-
-        <section className="drawer-section current-action-panel">
-          <div className="current-action-panel__copy">
-            <p className="eyebrow">Aksi saat ini</p>
+            <p className="eyebrow">Proses saat ini</p>
             <h3>{currentActionTitle}</h3>
-            {hasPendingRework ? <p><b>{formatNumber(pendingReworkQty)} unit</b> belum bisa dihitung selesai. Pilih hasil akhirnya: stok baik, Grade B, Hold Sortir, atau Scrap.</p> : isTerminalFulfilled ? <p>{status === 'closed' ? 'WO sudah read-only. Gunakan Laporan untuk evaluasi.' : 'Semua kuantitas sudah terpenuhi. Proses lama dikunci agar tidak terjadi input ganda.'}</p> : currentStep ? <p>PIC: <b>{getMemberName(currentStep.assignedUserId, team, staffDirectory)}</b> · Input proses: <b>{currentStep.inputs.length ? currentStep.inputs.join(', ') : 'Mulai langsung'}</b></p> : <p>Tidak ada proses yang menunggu tindakan.</p>}
+            <span>{statusNote}</span>
+            {showLiveProcessIndicator ? <em className="live-process-banner">● Proses aktif sekarang</em> : null}
           </div>
-          {hasPendingRework && ['admin', 'ppic'].includes(currentUser.role) ? <button type="button" className="button button--warning" onClick={onResolveRework}>Selesaikan rework</button> : isTerminalFulfilled ? <div className="current-action-panel__metric current-action-panel__metric--done"><span>Status</span><b>{status === 'closed' ? 'Read-only' : 'Siap Close WO'}</b></div> : currentStep ? <div className="current-action-panel__metric"><span>Kapasitas saat ini</span><b>{Number.isFinite(getAvailableInputCap(workOrder, currentStep)) ? `${formatNumber(getAvailableInputCap(workOrder, currentStep))} unit` : 'Siap'}</b></div> : null}
+          <div className="wo-current-summary__side">
+            <div><span>Progress akhir</span><b>{progress}%</b><small>{isStockProduction ? 'Masuk gudang / klasifikasi' : 'Siap kirim'}</small></div>
+            {hasPendingRework && ['admin', 'ppic'].includes(currentUser.role) ? <button type="button" className="button button--warning button--compact" onClick={onResolveRework}>Selesaikan rework</button> : null}
+            {!hasPendingRework && !isTerminalFulfilled && currentStep ? <div><span>PIC</span><b>{getMemberName(currentStep.assignedUserId, team, staffDirectory)}</b><small>Input: {currentStep.inputs.length ? currentStep.inputs.join(', ') : 'Mulai langsung'}</small></div> : null}
+            {isTerminalFulfilled ? <div><span>Status</span><b>{status === 'closed' ? 'Read-only' : 'Siap Close WO'}</b><small>Proses lama dikunci</small></div> : null}
+          </div>
         </section>
 
         <section className="drawer-section">
@@ -394,7 +415,7 @@ export function WorkOrderDrawer({
         </div>
 
         <footer className="wo-detail-modal__footer">
-          <div className="wo-detail-modal__footer-actions">{actionButtons}</div>
+          <div className="wo-detail-modal__footer-actions"><button type="button" className="button button--secondary" onClick={() => printWorkOrderDocument(workOrder, team, staffDirectory)}>Cetak WO</button>{actionButtons}</div>
           <button type="button" className="button button--secondary" onClick={closeDetail}>Tutup</button>
         </footer>
       </aside>
