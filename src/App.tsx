@@ -373,6 +373,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | WorkOrder['status']>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all')
+  const [orderListTab, setOrderListTab] = useState<'active' | 'draft' | 'running' | 'done' | 'all'>('active')
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
   const [isLoadingWorkOrders, setIsLoadingWorkOrders] = useState(true)
@@ -459,13 +460,21 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     const needle = search.trim().toLocaleLowerCase('id-ID')
     return scopedOrders.filter((order) => {
       const status = deriveOrderStatus(order)
-      if (order.isArchived || status === 'closed') return false
       const matchesSearch = !needle || `${order.code} ${order.product} ${order.source}`.toLocaleLowerCase('id-ID').includes(needle)
       const matchesStatus = statusFilter === 'all' || status === statusFilter
       const matchesPriority = priorityFilter === 'all' || order.priority === priorityFilter
-      return matchesSearch && matchesStatus && matchesPriority
+      const matchesTab = orderListTab === 'all'
+        ? true
+        : orderListTab === 'active'
+          ? !order.isArchived && !['done', 'closed', 'cancelled'].includes(status)
+          : orderListTab === 'draft'
+            ? status === 'draft'
+            : orderListTab === 'running'
+              ? ['scheduled', 'in_progress', 'qc', 'packing'].includes(status)
+              : ['done', 'closed'].includes(status) && !order.isArchived
+      return matchesSearch && matchesStatus && matchesPriority && matchesTab
     })
-  }, [priorityFilter, search, scopedOrders, statusFilter])
+  }, [orderListTab, priorityFilter, search, scopedOrders, statusFilter])
 
   const readyTasks = useMemo(() => scopedOrders.flatMap((order) => order.steps
     .filter((step) => deriveStepStatus(order, step) === 'ready')
@@ -711,7 +720,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               <span><b>{currentUser.name}</b><small>{currentUser.role === 'admin' || currentUser.role === 'ppic' ? `${roleLabels[currentUser.role]} · Supabase verified` : roleLabels[currentUser.role]}</small></span>
               <button className="button button--secondary button--compact" type="button" onClick={onSignOut}>Keluar</button>
             </div>
-            {['admin', 'ppic'].includes(currentUser.role) ? <button className="button button--primary" onClick={() => setModal({ type: 'create' })}><Icon name="plus" /> Buat WO</button> : null}
+            {['admin', 'ppic'].includes(currentUser.role) ? <button className="button button--primary topbar__create-button" onClick={() => setModal({ type: 'create' })}><Icon name="plus" /> Buat WO</button> : null}
           </div>
         </header>
 
@@ -763,7 +772,16 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         {view === 'orders' ? (
           <section className="view-content">
             <article className="surface-card">
-              <header className="surface-card__header"><div><p className="eyebrow">Daftar utama</p><h2>{hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2><span>{hasFullWorkOrderAccess(currentUser) ? 'Klik satu WO untuk melihat rute, input proses, PIC, timer, dan histori.' : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span></div><Badge kind="plain" value={`${filteredOrders.length} WO`} /></header>
+              <header className="surface-card__header"><div><p className="eyebrow">Daftar utama</p><h2>{hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2><span>{hasFullWorkOrderAccess(currentUser) ? 'Default menampilkan WO aktif. WO selesai dipindahkan ke tab Selesai atau Laporan.' : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span></div><Badge kind="plain" value={`${filteredOrders.length} WO`} /></header>
+              <div className="wo-list-tabs" role="tablist" aria-label="Filter daftar Work Order">
+                {[
+                  { id: 'active', label: 'Aktif' },
+                  { id: 'draft', label: 'Draft' },
+                  { id: 'running', label: 'Berjalan' },
+                  { id: 'done', label: 'Selesai' },
+                  { id: 'all', label: 'Semua' },
+                ].map((item) => <button key={item.id} type="button" className={orderListTab === item.id ? 'is-active' : ''} onClick={() => setOrderListTab(item.id as typeof orderListTab)}>{item.label}</button>)}
+              </div>
               <div className="filter-row">
                 <label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari kode WO, produk, atau sumber order" /></label>
                 <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
@@ -778,14 +796,21 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                   const finalProgressLabel = order.type === 'mts' ? 'masuk gudang / reject tercatat' : 'siap kirim'
                   const showLiveIndicator = ['admin', 'ppic'].includes(currentUser.role) && Boolean(activeStep)
                   const indicatorStep = activeStep || current
-                  return <tr className={`wo-table__row wo-table__row--station-${indicatorStep?.station || 'warehouse'}${showLiveIndicator ? ' wo-table__row--live-current' : ''}`} key={order.id} onClick={() => openOrder(order)}>
+                  const terminalProcessLabel = order.isArchived
+                    ? 'Diarsipkan'
+                    : status === 'closed'
+                      ? 'WO sudah ditutup'
+                      : status === 'done'
+                        ? 'Siap ditutup PPIC'
+                        : undefined
+                  return <tr className={`wo-table__row wo-table__row--station-${indicatorStep?.station || 'warehouse'}${showLiveIndicator ? ' wo-table__row--live-current' : ''}${terminalProcessLabel ? ' wo-table__row--terminal' : ''}`} key={order.id} onClick={() => openOrder(order)}>
                     <td><b>{order.code}</b><small>Dibuat {formatDate(order.createdAt.slice(0, 10))}</small></td>
                     <td><Badge kind="type" value={order.type} /><small>{order.source}</small></td>
                     <td><b>{order.product}</b><small>{order.referenceNote || 'Tidak ada catatan referensi'}</small></td>
                     <td><b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b><Badge kind="priority" value={order.priority} /></td>
                     <td><div className="wo-progress-cell"><div className="wo-progress-cell__top"><b>{getProgress(order)}%</b><span>{formatNumber(shortfall.packedGood + shortfall.approvedQty)}/{formatNumber(order.qty)}</span></div><div className="wo-progress-bar" aria-hidden="true"><i style={{ width: `${getProgress(order)}%` }} /></div><small>{finalProgressLabel}</small></div></td>
                     <td><div className="wo-status-cell"><Badge kind="status" value={status} />{shortfall.actionRequiredQty > 0 ? <Badge kind="shortfall" value="action_required" /> : shortfall.replacementRemainingQty > 0 ? <Badge kind="shortfall" value="replacement_planned" /> : null}{getBlockerSummary(order) ? <small className={shortfall.actionRequiredQty > 0 ? 'text-danger' : 'text-warning'}>{getBlockerSummary(order)}</small> : <small>Tidak ada blocker</small>}</div></td>
-                    <td><b>{indicatorStep?.assignedUserId ? getDirectoryName(indicatorStep.assignedUserId, staffDirectory) : 'Belum ditetapkan'}</b><small>{indicatorStep ? <><Badge kind="station" value={indicatorStep.station} /> {indicatorStep.name}{showLiveIndicator ? <span className="current-process-indicator" title="Proses ini sedang berjalan">● Aktif sekarang</span> : null}</> : 'Belum ada proses aktif'}</small></td>
+                    <td><b>{terminalProcessLabel || (indicatorStep?.assignedUserId ? getDirectoryName(indicatorStep.assignedUserId, staffDirectory) : 'Belum ditetapkan')}</b><small>{terminalProcessLabel ? (status === 'done' ? 'Hasil produksi sudah terpenuhi' : statusLabels[status]) : indicatorStep ? <><Badge kind="station" value={indicatorStep.station} /> {indicatorStep.name}{showLiveIndicator ? <span className="current-process-indicator" title="Proses ini sedang berjalan">● Aktif sekarang</span> : null}</> : 'Belum ada proses aktif'}</small></td>
                     <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
                 })}
@@ -1950,6 +1975,7 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
   const [typeFilter, setTypeFilter] = useState<'all' | WorkOrderType>('all')
   const [stationFilter, setStationFilter] = useState<'all' | Station>('all')
   const [search, setSearch] = useState('')
+  const [expandedReportOrderId, setExpandedReportOrderId] = useState<string | null>(null)
   const directoryRows = getCombinedDirectory(directory, team)
   const nameOf = (id?: string) => getDirectoryName(id, directoryRows, 'Belum ditugaskan')
   const needle = search.trim().toLowerCase()
@@ -2022,11 +2048,21 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
     </div>
 
     <article className="surface-card report-workspace">
-      <header className="surface-card__header"><div><p className="eyebrow">Laporan operasional</p><h2>{tabs.find((item) => item.id === tab)?.label}</h2><span>Filter dan buka WO untuk menelusuri detail. Data hasil produksi masih berbasis sesi frontend sampai Supabase tersambung.</span></div><button type="button" className="button button--secondary button--compact" onClick={() => window.print()}>Cetak laporan</button></header>
+      <header className="surface-card__header"><div><p className="eyebrow">Laporan operasional</p><h2>{tabs.find((item) => item.id === tab)?.label}</h2><span>Ringkasan utama memakai satu baris per WO. Detail proses dibuka hanya saat diperlukan.</span></div><button type="button" className="button button--secondary button--compact" onClick={() => window.print()}>Cetak laporan</button></header><div className="report-print-heading"><b>CV Pusat Grosir Eceran</b><h1>Laporan Operasional Work Order</h1><span>{todayText}</span></div>
       <div className="report-tabs">{tabs.map((item) => <button type="button" className={tab === item.id ? 'is-active' : ''} onClick={() => setTab(item.id)} key={item.id}>{item.label}</button>)}</div>
       <div className="filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari WO, produk, atau customer" /></label><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="all">Semua tipe WO</option><option value="mto">MTO · Pesanan customer</option><option value="mts">MTS · Buat stok</option></select><select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)}><option value="all">Semua stasiun</option>{Object.entries(stationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
 
-      {tab === 'daily' ? <ReportTable headers={['WO / Produk', 'Stasiun / PIC', 'Output', 'Status', 'Catatan']} rows={dailyRows.map(({ order, step }) => [<button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button>, <span><Badge kind="station" value={step.station} /><small>{nameOf(step.assignedUserId)}</small></span>, <span><b>{formatNumber(step.qtyGood)}</b> baik · {formatNumber(step.qtyRework)} rework · {formatNumber(step.qtyReject)} reject</span>, <Badge kind="process" value={deriveStepStatus(order, step)} />, <span>{step.defectCategory ? defectCategoryLabels[step.defectCategory] : step.holdReason || 'Aktivitas / output saat ini'}</span>])} empty="Belum ada output atau proses aktif pada filter ini." /> : null}
+      {tab === 'daily' ? <div className="table-wrap report-table-wrap"><table className="wo-table report-table report-summary-table"><thead><tr><th>WO / Produk</th><th>Tipe</th><th>Target</th><th>Output final</th><th>Status</th><th>Catatan</th><th /></tr></thead><tbody>{filtered.length ? filtered.map((order) => {
+        const summary = getShortfallSummary(order)
+        const finalStep = getFinalProcessStep(order)
+        const finalGood = getPackingGood(order) || finalStep?.qtyGood || 0
+        const rejectTotal = order.steps.reduce((sum, step) => sum + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0)
+        const isExpanded = expandedReportOrderId === order.id
+        return <>
+          <tr key={`${order.id}-summary`} className="report-summary-row"><td><button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button></td><td><Badge kind="type" value={order.type} /><small>{order.source}</small></td><td><b>{formatNumber(order.qty)}</b><small>Due {formatDate(order.dueDate)}</small></td><td><b>{formatNumber(finalGood)}</b><small>{order.type === 'mts' ? 'masuk gudang' : 'siap kirim'} · {formatNumber(rejectTotal)} reject/klasifikasi · extra {formatNumber(summary.extraQty)}</small></td><td><Badge kind="status" value={deriveOrderStatus(order)} /><small>{getBlockerSummary(order) || (summary.isFulfilled ? 'Terpenuhi' : 'Tidak ada blocker')}</small></td><td>{summary.pendingReworkQty > 0 ? <span className="text-danger">Pending rework {formatNumber(summary.pendingReworkQty)}</span> : summary.remainingQty > 0 ? <span>Kurang {formatNumber(summary.remainingQty)}</span> : <span>Ringkasan WO</span>}</td><td><button type="button" className="button button--secondary button--compact" onClick={() => setExpandedReportOrderId(isExpanded ? null : order.id)}>{isExpanded ? 'Tutup detail' : 'Detail proses'}</button></td></tr>
+          {isExpanded ? <tr key={`${order.id}-detail`} className="report-detail-row"><td colSpan={7}><div className="report-process-detail">{order.steps.map((step) => <article key={step.id}><span>P{String(step.sequence).padStart(2, '0')}</span><b>{step.name}</b><em>{stationLabels[step.station]}</em><small>PIC: {nameOf(step.assignedUserId)} · Output {formatNumber(step.qtyGood)} · Rework {formatNumber(step.qtyRework)} · Reject {formatNumber(step.qtyReject)}</small><Badge kind="process" value={deriveStepStatus(order, step)} /></article>)}</div></td></tr> : null}
+        </>
+      }) : <tr><td colSpan={7}><div className="empty-state">Belum ada WO pada filter ini.</div></td></tr>}</tbody></table></div> : null}
       {tab === 'finished' ? <div className="finished-report-list">{finishedRows.length ? finishedRows.map(({ order, finalStep, finalGood, rejectTotal, reworkTotal, completedSteps, leadTimeDays, lateDays, productionSeconds }) => <article className="finished-report-card" key={order.id}>
         <header><div><p className="eyebrow">{order.code} · {order.type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer'}</p><h3>{order.product}</h3><span>{order.source}</span></div><Badge kind="status" value={deriveOrderStatus(order)} /></header>
         <div className="finished-report-card__metrics">
