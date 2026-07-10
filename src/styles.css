@@ -3286,3 +3286,189 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* v0.4.10.12 — process status visibility cleanup */
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable {
+  grid-template-columns: 54px minmax(0, 1fr) minmax(150px, 210px) auto !important;
+  grid-template-areas:
+    "seq title status toggle"
+    "seq station status toggle" !important;
+  min-height: 70px;
+  padding: 14px 16px !important;
+  border-left-width: 6px !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable .route-card__badges {
+  grid-area: status !important;
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  justify-items: center !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin-top: 0 !important;
+  min-width: 0 !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable .route-card__badges .badge--station {
+  order: 1;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  justify-content: center;
+  font-size: 9px;
+  padding: 4px 8px;
+  opacity: .9;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable .route-card__badges .badge--process {
+  order: 2;
+  justify-content: center;
+  min-width: 128px;
+  padding: 7px 12px;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+  border-width: 1px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, .04);
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--completed {
+  border-color: #bbf7d0 !important;
+  border-left-color: #16a34a !important;
+  background: linear-gradient(90deg, #f0fdf4, #ffffff 38%) !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--completed .route-card__badges .badge--completed {
+  color: #14532d !important;
+  border-color: #86efac !important;
+  background: #dcfce7 !important;
+  font-size: 13px !important;
+  min-width: 138px;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--completed .route-card__badges .badge--completed::before {
+  content: "✓";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border-radius: 999px;
+  color: #fff;
+  background: #16a34a;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--in_progress,
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--live {
+  border-color: rgba(var(--process-rgb, 37, 99, 235), .45) !important;
+  border-left-color: rgb(var(--process-rgb, 37, 99, 235)) !important;
+  background: linear-gradient(90deg, rgba(var(--process-rgb, 37, 99, 235), .08), #ffffff 45%) !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--in_progress .route-card__badges .badge--in_progress,
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--live .current-process-indicator {
+  color: #1d4ed8 !important;
+  border-color: #bfdbfe !important;
+  background: #eff6ff !important;
+  min-width: 138px;
+  font-size: 12px !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--waiting_wip .route-card__badges .badge--waiting_wip,
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--ready .route-card__badges .badge--ready,
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--partial_paused .route-card__badges .badge--partial_paused,
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--hold .route-card__badges .badge--hold,
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--not_ready .route-card__badges .badge--not_ready {
+  min-width: 138px;
+  font-size: 11px !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--hold {
+  border-color: #fecaca !important;
+  border-left-color: #dc2626 !important;
+  background: linear-gradient(90deg, #fff1f2, #ffffff 45%) !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--hold .route-card__badges .badge--hold {
+  color: #991b1b !important;
+  border-color: #fecaca !important;
+  background: #fff1f2 !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--partial_paused {
+  border-color: #fed7aa !important;
+  border-left-color: #f97316 !important;
+  background: linear-gradient(90deg, #fff7ed, #ffffff 45%) !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--partial_paused .route-card__badges .badge--partial_paused {
+  color: #9a3412 !important;
+  border-color: #fdba74 !important;
+  background: #ffedd5 !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .current-process-indicator {
+  order: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 138px;
+  padding: 7px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card__toggle {
+  min-width: 64px;
+  padding: 8px 10px;
+  font-size: 10px;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--completed .route-card__toggle {
+  background: #f8fafc !important;
+  color: #475569 !important;
+}
+
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--completed.route-card--expanded .route-card__toggle,
+.wo-detail-modal .route-flow.route-flow--accordion .route-card--expanded .route-card__toggle {
+  background: #ffbb00 !important;
+  color: #111827 !important;
+}
+
+@media (max-width: 820px) {
+  .wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable {
+    grid-template-columns: 42px minmax(0, 1fr) !important;
+    grid-template-areas:
+      "seq title"
+      "seq station"
+      "status status"
+      "toggle toggle" !important;
+    min-height: 0;
+  }
+
+  .wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable .route-card__badges {
+    justify-items: stretch !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable .route-card__badges .badge--station,
+  .wo-detail-modal .route-flow.route-flow--accordion .route-card--clickable .route-card__badges .badge--process,
+  .wo-detail-modal .route-flow.route-flow--accordion .current-process-indicator {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .wo-detail-modal .route-flow.route-flow--accordion .current-process-indicator {
+    grid-column: 1 / -1;
+  }
+}
