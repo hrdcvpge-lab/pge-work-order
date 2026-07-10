@@ -2075,49 +2075,142 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
   const selectedPrintRejectTotal = selectedPrintOrder ? selectedPrintOrder.steps.reduce((sum, step) => sum + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0) : 0
   const selectedPrintActiveStep = selectedPrintOrder ? getCurrentProcess(selectedPrintOrder) : undefined
 
-  useEffect(() => {
-    if (!pendingPrintMode) return
+  const escapePrintHtml = (value: unknown) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 
-    if (pendingPrintMode === 'wo' && !selectedPrintOrder) {
-      setPendingPrintMode(null)
-      setPrintMode('report')
-      setPrintTargetOrderId(null)
+  const printHtmlDocument = (title: string, html: string, orientation: 'portrait' | 'landscape') => {
+    const iframe = document.createElement('iframe')
+    iframe.setAttribute('title', title)
+    iframe.setAttribute('aria-hidden', 'true')
+    Object.assign(iframe.style, {
+      position: 'fixed',
+      right: '0',
+      bottom: '0',
+      width: '0',
+      height: '0',
+      border: '0',
+      opacity: '0',
+      pointerEvents: 'none',
+    })
+    document.body.appendChild(iframe)
+
+    const doc = iframe.contentDocument || iframe.contentWindow?.document
+    if (!doc) {
+      iframe.remove()
       return
     }
 
-    document.body.classList.add('pge-printing')
+    const printCss = `
+      @page { size: A4 ${orientation}; margin: 12mm; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: #111827; font-family: Arial, Helvetica, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .print-doc { width: 100%; }
+      .print-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; border-bottom: 3px solid #871719; padding-bottom: 10px; margin-bottom: 12px; }
+      .print-header b { display: block; color: #871719; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+      .print-header h1 { margin: 5px 0 3px; font-size: 24px; line-height: 1.05; }
+      .print-header span, .print-header small { display: block; color: #4b5563; font-size: 10px; line-height: 1.45; }
+      .print-header aside { min-width: 220px; text-align: right; }
+      .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
+      .summary-grid div { border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 9px; min-height: 54px; }
+      .summary-grid span { display: block; color: #6b7280; font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .summary-grid b { display: block; margin-top: 4px; font-size: 13px; }
+      .summary-grid small { display: block; margin-top: 2px; color: #6b7280; font-size: 8px; line-height: 1.3; }
+      h2 { margin: 15px 0 7px; color: #871719; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 9px; table-layout: fixed; }
+      th, td { border: 1px solid #d1d5db; padding: 6px 7px; text-align: left; vertical-align: top; }
+      th { background: #f3f4f6; color: #374151; font-size: 7.8px; letter-spacing: .06em; text-transform: uppercase; }
+      td b, td small { display: block; }
+      td small { margin-top: 2px; color: #6b7280; font-size: 7.8px; line-height: 1.3; }
+      .approval { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; margin-top: 14px; page-break-inside: avoid; break-inside: avoid; }
+      .approval > div { border: 1px solid #d1d5db; border-radius: 8px; padding: 9px; }
+      .approval b, .approval span { display: block; }
+      .approval b { margin-bottom: 5px; color: #871719; font-size: 10px; }
+      .approval span { color: #374151; font-size: 9px; line-height: 1.45; }
+      .print-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 14px; border-top: 1px solid #d1d5db; padding-top: 8px; color: #6b7280; font-size: 8px; }
+      tr, .summary-grid, .approval { page-break-inside: avoid; break-inside: avoid; }
+      thead { display: table-header-group; }
+    `
 
-    const afterPrint = () => {
-      window.setTimeout(() => {
-        document.body.classList.remove('pge-printing')
-        setPendingPrintMode(null)
-        setPrintMode('report')
-        setPrintTargetOrderId(null)
-      }, 0)
+    doc.open()
+    doc.write(`<!doctype html><html><head><meta charset="utf-8" /><title>${escapePrintHtml(title)}</title><style>${printCss}</style></head><body>${html}</body></html>`)
+    doc.close()
+
+    const cleanup = () => {
+      window.setTimeout(() => iframe.remove(), 500)
     }
 
-    window.addEventListener('afterprint', afterPrint)
-
-    const printTimer = window.setTimeout(() => {
-      window.print()
-    }, 180)
-
-    return () => {
-      window.clearTimeout(printTimer)
-      window.removeEventListener('afterprint', afterPrint)
-      document.body.classList.remove('pge-printing')
+    const runPrint = () => {
+      const printWindow = iframe.contentWindow
+      if (!printWindow) {
+        cleanup()
+        return
+      }
+      const afterPrint = () => {
+        printWindow.removeEventListener('afterprint', afterPrint)
+        cleanup()
+      }
+      printWindow.addEventListener('afterprint', afterPrint)
+      printWindow.focus()
+      printWindow.print()
+      window.setTimeout(cleanup, 4000)
     }
-  }, [pendingPrintMode, selectedPrintOrder])
+
+    window.setTimeout(runPrint, 250)
+  }
+
+  const buildReportPrintHtml = () => `
+    <main class="print-doc">
+      <header class="print-header">
+        <div><b>CV Pusat Grosir Eceran</b><h1>Laporan Operasional Work Order</h1><span>${escapePrintHtml(activeReportLabel)}</span></div>
+        <aside><b>${escapePrintHtml(reportPeriodText)}</b><small>Dicetak: ${escapePrintHtml(generatedAtText)}</small><small>Filter: ${escapePrintHtml(typeFilter === 'all' ? 'Semua tipe WO' : typeFilter === 'mts' ? 'Produksi Stok' : 'Pesanan Customer')} · ${escapePrintHtml(stationFilter === 'all' ? 'Semua stasiun' : stationLabels[stationFilter])}</small></aside>
+      </header>
+      <table>
+        <thead><tr><th>WO</th><th>Produk</th><th>Tipe</th><th>Target</th><th>Output final</th><th>Reject / klasifikasi</th><th>Extra</th><th>Pending rework</th><th>Status</th><th>Due</th><th>Proses saat ini</th></tr></thead>
+        <tbody>${printRows.length ? printRows.map(({ order, summary, finalGood, rejectTotal, activeStep, status }) => `<tr><td><b>${escapePrintHtml(order.code)}</b><small>${escapePrintHtml(order.source)}</small></td><td>${escapePrintHtml(order.product)}</td><td>${escapePrintHtml(order.type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer')}</td><td>${escapePrintHtml(formatNumber(order.qty))}</td><td><b>${escapePrintHtml(formatNumber(finalGood))}</b><small>${escapePrintHtml(order.type === 'mts' ? 'masuk gudang' : 'siap kirim')}</small></td><td>${escapePrintHtml(formatNumber(rejectTotal))}</td><td>${escapePrintHtml(formatNumber(summary.extraQty))}</td><td>${escapePrintHtml(formatNumber(summary.pendingReworkQty))}</td><td>${escapePrintHtml(statusLabels[status])}</td><td>${escapePrintHtml(formatDate(order.dueDate))}</td><td>${escapePrintHtml(activeStep ? `${activeStep.name} · ${stationLabels[activeStep.station]}` : summary.isFulfilled ? 'Siap ditutup PPIC' : 'Belum ditetapkan')}</td></tr>`).join('') : '<tr><td colspan="11">Tidak ada WO pada filter ini.</td></tr>'}</tbody>
+      </table>
+      <footer class="print-footer"><span>Dokumen dicetak dari PGE WO Control. Ringkasan memakai satu baris per WO.</span><span>Laporan operasional</span></footer>
+    </main>
+  `
+
+  const buildWorkOrderPrintHtml = (order: WorkOrder) => {
+    const summary = getShortfallSummary(order)
+    const finalStep = getFinalProcessStep(order)
+    const finalGood = getPackingGood(order) || finalStep?.qtyGood || 0
+    const rejectTotal = order.steps.reduce((sum, step) => sum + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0)
+    const activeStep = getCurrentProcess(order)
+    return `
+      <main class="print-doc">
+        <header class="print-header">
+          <div><b>CV Pusat Grosir Eceran</b><h1>Work Order Produksi</h1><span>${escapePrintHtml(order.code)}</span></div>
+          <aside><b>${escapePrintHtml(order.type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer')}</b><small>Dicetak: ${escapePrintHtml(generatedAtText)}</small><small>Status: ${escapePrintHtml(statusLabels[deriveOrderStatus(order)])}</small></aside>
+        </header>
+        <section class="summary-grid">
+          <div><span>Produk</span><b>${escapePrintHtml(order.product)}</b><small>${escapePrintHtml(order.source)}</small></div>
+          <div><span>Target</span><b>${escapePrintHtml(formatNumber(order.qty))} unit</b><small>Due ${escapePrintHtml(formatDate(order.dueDate))}</small></div>
+          <div><span>Prioritas</span><b>${escapePrintHtml(priorityLabels[order.priority])}</b><small>Dibuat ${escapePrintHtml(formatDate(order.createdAt))}</small></div>
+          <div><span>Output akhir</span><b>${escapePrintHtml(formatNumber(finalGood))} ${escapePrintHtml(order.type === 'mts' ? 'masuk gudang' : 'siap kirim')}</b><small>Progress ${escapePrintHtml(formatNumber(getProgress(order)))}%</small></div>
+          <div><span>Reject / klasifikasi</span><b>${escapePrintHtml(formatNumber(rejectTotal))}</b><small>Extra ${escapePrintHtml(formatNumber(summary.extraQty))} · Pending rework ${escapePrintHtml(formatNumber(summary.pendingReworkQty))}</small></div>
+          <div><span>Proses saat ini</span><b>${escapePrintHtml(activeStep ? activeStep.name : summary.isFulfilled ? 'Siap ditutup PPIC' : 'Belum ditetapkan')}</b><small>${escapePrintHtml(activeStep ? stationLabels[activeStep.station] : getBlockerSummary(order) || 'Tidak ada blocker aktif')}</small></div>
+        </section>
+        <h2>Route & Penugasan</h2>
+        <table><thead><tr><th>Step</th><th>Proses</th><th>Stasiun</th><th>PIC</th><th>Lapor ke</th><th>Area</th><th>Rencana</th><th>Status</th></tr></thead><tbody>${order.steps.map((step) => `<tr><td>P${String(step.sequence).padStart(2, '0')}</td><td><b>${escapePrintHtml(step.name)}</b><small>Output: ${escapePrintHtml(step.output)}</small></td><td>${escapePrintHtml(stationLabels[step.station])}</td><td>${escapePrintHtml(nameOf(step.assignedUserId))}</td><td>${escapePrintHtml(nameOf(step.reportToUserId))}</td><td>${escapePrintHtml(step.location || 'Belum ditetapkan')}</td><td>${escapePrintHtml(step.scheduledDate ? formatDate(step.scheduledDate) : '-')}</td><td>${escapePrintHtml(processLabels[deriveStepStatus(order, step)])}</td></tr>`).join('')}</tbody></table>
+        <h2>Hasil Proses</h2>
+        <table><thead><tr><th>Step</th><th>Baik</th><th>Rework</th><th>Reject</th><th>Grade B</th><th>Hold sortir</th><th>Scrap</th><th>Extra</th><th>Pending</th><th>Catatan</th></tr></thead><tbody>${order.steps.map((step) => `<tr><td>P${String(step.sequence).padStart(2, '0')}<small>${escapePrintHtml(step.name)}</small></td><td>${escapePrintHtml(formatNumber(step.qtyGood))}</td><td>${escapePrintHtml(formatNumber(step.qtyRework))}</td><td>${escapePrintHtml(formatNumber(step.qtyReject))}</td><td>${escapePrintHtml(formatNumber(getStepGradeBQty(step)))}</td><td>${escapePrintHtml(formatNumber(getStepHoldSortirQty(step)))}</td><td>${escapePrintHtml(formatNumber(getStepScrapQty(step)))}</td><td>${escapePrintHtml(formatNumber(getStepExtraQty(step)))}</td><td>${escapePrintHtml(formatNumber(getStepPendingReworkQty(step)))}</td><td>${escapePrintHtml(step.resultNote || step.holdReason || '-')}</td></tr>`).join('')}</tbody></table>
+        <section class="approval"><div><b>Approval / Close</b><span>Closed by: ${escapePrintHtml(order.closedBy || '-')}</span><span>Closed date: ${escapePrintHtml(order.closedAt ? formatDate(order.closedAt) : '-')}</span></div><div><b>Catatan PPIC</b><span>WO target mengukur kebutuhan. Output aktual, extra, rework, dan klasifikasi gudang dicatat terpisah untuk audit.</span></div></section>
+        <footer class="print-footer"><span>Dokumen WO dicetak dari PGE WO Control.</span><span>${escapePrintHtml(order.code)}</span></footer>
+      </main>
+    `
+  }
 
   const printReport = () => {
-    setPrintMode('report')
-    setPrintTargetOrderId(null)
-    setPendingPrintMode('report')
+    printHtmlDocument('Laporan Operasional Work Order', buildReportPrintHtml(), 'landscape')
   }
   const printWorkOrder = (order: WorkOrder) => {
-    setPrintMode('wo')
-    setPrintTargetOrderId(order.id)
-    setPendingPrintMode('wo')
+    printHtmlDocument(`Work Order ${order.code}`, buildWorkOrderPrintHtml(order), 'portrait')
   }
 
   return <section className="view-content reports-view">
