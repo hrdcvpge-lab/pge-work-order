@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Badge } from './Badge'
 import { Icon } from './Icon'
 import type { ProcessStep, StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderReferenceImage, WorkOrderShortfall } from '../types/workOrder'
@@ -169,9 +169,95 @@ export function WorkOrderDrawer({
     ? workOrder.steps
     : workOrder.steps.filter((step) => step.assignedUserId === currentUser.id)
 
+  const [expandedStepId, setExpandedStepId] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    setExpandedStepId(currentStep?.id || visibleProcessTickets[0]?.id || workOrder.steps[0]?.id)
+  }, [workOrder.id, currentStep?.id, visibleProcessTickets.length])
+
   const closeDetail = () => {
     setActiveArtwork(null)
     onClose()
+  }
+
+
+  const renderProcessDetail = (step: ProcessStep) => {
+    const stepStatus = deriveStepStatus(workOrder, step)
+    const inputCap = getAvailableInputCap(workOrder, step)
+    const canOperate = !isTerminalFulfilled && canOperateStep(currentUser, step)
+    const normalActionBlockedByRework = hasPendingRework && stepStatus !== 'in_progress'
+    const canAssign = !isTerminalFulfilled && ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
+    const performerAccessMode = getMemberAccessMode(step.assignedUserId, staffDirectory)
+    const isAdminAssisted = performerAccessMode === 'admin_assisted' && ['admin', 'ppic'].includes(currentUser.role)
+    const isPrinting = step.station === 'printing'
+    const isStockInStep = isFinalStockInStep(workOrder, step)
+    const isPackingStep = isFinalPackingStep(workOrder, step)
+    const resultQtyLabel = isStockInStep ? 'Masuk gudang' : isPackingStep ? 'Siap kirim' : 'Hasil baik'
+    const stepExtra = getStepExtraQty(step)
+    const stepPendingRework = getStepPendingReworkQty(step)
+    const stepClassifiedQty = getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step)
+    const logResultLabel = isStockInStep ? 'Catat stok masuk' : isPackingStep ? 'Catat packing' : isAdminAssisted ? 'Catat hasil PIC' : 'Catat hasil'
+    const startBlocked = isPrinting && !artworkReadiness.ready
+    const isCurrent = currentStep?.id === step.id
+    const isLive = showLiveProcessIndicator && activeStep?.id === step.id
+    const cannotOperateAssignedScope = !canViewAllProcessTickets && step.assignedUserId !== currentUser.id
+
+    return <article className={`process-ticket route-step-detail process-ticket--station-${step.station}${step.isReplacement ? ' process-ticket--replacement' : ''}${isCurrent ? ' process-ticket--current' : ''}${isLive ? ' process-ticket--live' : ''}`}>
+      <header>
+        <div>
+          <span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span>
+          <h4>{step.name}</h4>
+          <p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'} · Rencana: {step.scheduledDate ? formatDate(step.scheduledDate) : 'Belum dijadwalkan'}{step.isReplacement ? ' · Rute penggantian' : ''}</p>
+        </div>
+        <div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{step.isReplacement ? <em className="replacement-indicator">↻ Penggantian</em> : null}{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div>
+      </header>
+
+      <div className="process-ticket__meta-grid route-step-detail__metrics">
+        <div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div>
+        <div><span>{resultQtyLabel}</span><b>{formatNumber(step.qtyGood)}</b></div>
+        <div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div>
+        <div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div>
+        {stepExtra > 0 ? <div><span>Extra produksi</span><b className="text-warning">+{formatNumber(stepExtra)}</b></div> : null}
+        {stepPendingRework > 0 ? <div><span>Pending rework</span><b className="text-danger">{formatNumber(stepPendingRework)}</b></div> : null}
+        {stepClassifiedQty > 0 ? <div><span>Grade/Hold/Scrap</span><b>{formatNumber(stepClassifiedQty)}</b></div> : null}
+      </div>
+
+      <div className="process-ticket__input-panel route-step-detail__input-panel">
+        <div className="process-ticket__input-hero">
+          <span>Input proses</span>
+          <b>{step.inputs.length ? 'Perlu input proses' : 'Mulai langsung'}</b>
+          <small>{step.inputs.length ? `${step.inputs.length} sumber input dibutuhkan` : 'Tidak menunggu hasil proses sebelumnya.'}</small>
+        </div>
+        <div className="process-ticket__input-chips">
+          <span>Detail input</span>
+          {step.inputs.length ? step.inputs.map((input) => <em key={input}>{input}<strong>{formatNumber(getWipBalance(workOrder, input))}</strong></em>) : <em>Tanpa input sebelumnya<strong>Siap</strong></em>}
+        </div>
+        <div className="process-ticket__input-capacity">
+          <span>Kapasitas saat ini</span>
+          <b>{Number.isFinite(inputCap) ? `${formatNumber(inputCap)} unit` : 'Siap'}</b>
+          <small>{Number.isFinite(inputCap) ? 'Maksimal dapat diproses sekarang' : 'Proses dapat langsung dimulai'}</small>
+        </div>
+      </div>
+
+      {isPrinting && finalArtwork ? <div className="printing-final-panel">
+        <button type="button" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={finalArtwork.name} /></button><div><span>{artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><b>{finalArtwork.name}</b><small>{finalArtwork.printNote || (artworkApprovalRequired ? 'Buka file final sebelum mulai cetak.' : 'File ini dapat dipakai sebagai referensi operator.')}</small>{artworkApprovalRequired ? (step.artworkConfirmedAt ? <em><Icon name="check" /> Diverifikasi oleh {step.artworkConfirmedBy} · {formatDateTime(step.artworkConfirmedAt)}</em> : <em><Icon name="warning" /> Operator wajib review dan konfirmasi file final saat mulai.</em>) : <em><Icon name="check" /> Approval artwork tidak diwajibkan untuk WO ini.</em>}</div>
+      </div> : null}
+      {isPrinting && artworkApprovalRequired && !finalArtwork ? <div className="printing-final-panel printing-final-panel--blocked"><Icon name="warning" /><div><b>Printing diblokir</b><small>{artworkReadiness.reason}</small></div></div> : null}
+      {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
+      {isAdminAssisted ? <div className="assisted-progress-box"><Icon name="user" /><span><b>Update dibantu Admin/PPIC.</b> PIC aktual tetap {getMemberName(step.assignedUserId, team, staffDirectory)}, tetapi progress dicatat oleh akun yang sedang login.</span></div> : null}
+      {cannotOperateAssignedScope ? <div className="process-ticket__locked-note"><Icon name="user" /> Tiket ini tidak ditugaskan ke akun Anda. Detail ditampilkan sebagai konteks alur.</div> : null}
+      {isTerminalFulfilled ? <div className="process-ticket__locked-note"><Icon name="check" /> WO sudah terpenuhi. Tiket proses dikunci untuk mencegah input ganda.</div> : null}
+
+      <footer className="process-ticket__footer"><div className="process-ticket__actions">
+        {canAssign ? <button className="button button--secondary" onClick={() => onAssign(step)}>Atur PIC</button> : null}
+        {canOperate && !normalActionBlockedByRework && ['ready', 'partial_paused'].includes(stepStatus) ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {stepStatus === 'partial_paused' ? 'Lanjutkan proses' : isPrinting ? (artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : isAdminAssisted ? 'Mulai atas nama PIC' : 'Mulai proses'}</button> : null}
+        {canOperate && stepStatus === 'in_progress' ? <button className="button button--secondary" onClick={() => onPause(step)}><Icon name="pause" /> Jeda</button> : null}
+        {canOperate && stepStatus === 'in_progress' && step.station === 'qc' ? <button className="button button--primary" onClick={() => onQcDecision(step)}>Keputusan QC</button> : null}
+        {canOperate && stepStatus === 'in_progress' && step.station !== 'qc' ? <button className="button button--primary" onClick={() => onLogResult(step)}>{logResultLabel}</button> : null}
+        {canOperate && !normalActionBlockedByRework && ['ready', 'partial_paused', 'in_progress'].includes(stepStatus) ? <button className="button button--danger-soft" onClick={() => onHold(step)}>HOLD</button> : null}
+        {canOperate && stepStatus === 'hold' ? <button className="button button--success-soft" onClick={() => onResume(step)}>Lanjutkan</button> : null}
+      </div></footer>
+    </article>
   }
 
   const actionButtons = <>
@@ -277,78 +363,27 @@ export function WorkOrderDrawer({
           </> : !artworkApprovalRequired ? <div className="artwork-missing"><Icon name="image" /><span><b>Tidak ada gambar artwork.</b> Tidak masalah—artwork tidak diwajibkan untuk WO ini. Tambahkan file hanya bila motif perlu menjadi acuan operator.</span></div> : null}
         </section>
 
-        <section className="drawer-section">
-          <div className="section-heading"><div><p className="eyebrow">Alur proses</p><h3>Rute, input proses, dan PIC aktual</h3></div><span>{workOrder.steps.length} proses</span></div>
-          <div className="route-flow">
+        <section className="drawer-section process-accordion-section">
+          <div className="section-heading"><div><p className="eyebrow">Alur proses</p><h3>Klik proses untuk melihat tiket & aksi</h3></div><span>{workOrder.steps.length} proses</span></div>
+          {!canViewAllProcessTickets ? <div className="assignment-scope-banner assignment-scope-banner--compact"><Icon name="user" /><span>Anda hanya bisa menjalankan tiket yang ditugaskan ke akun Anda. Proses lain tetap bisa dilihat sebagai konteks.</span><b>{visibleProcessTickets.length} tiket</b></div> : null}
+          <div className="route-flow route-flow--accordion">
             {workOrder.steps.map((step, index) => {
               const stepStatus = deriveStepStatus(workOrder, step)
               const isCurrent = currentStep?.id === step.id
               const isLive = showLiveProcessIndicator && activeStep?.id === step.id
-              return <div className="route-flow__group" key={step.id}>{index ? <Icon name="arrow" className="route-flow__arrow" /> : null}<article className={`route-card route-card--${stepStatus} route-card--station-${step.station}${step.isReplacement ? ' route-card--replacement' : ''}${isCurrent ? ' route-card--current' : ''}${isLive ? ' route-card--live' : ''}`}><span>P{String(index + 1).padStart(2, '0')}</span><b>{step.name}</b><small>{stationLabels[step.station]}</small><div className="route-card__badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{step.isReplacement ? <em className="replacement-indicator">↻ Penggantian</em> : null}{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></article></div>
+              const isExpanded = expandedStepId === step.id
+              return <div className={`route-flow__group route-flow__group--accordion${isExpanded ? ' route-flow__group--expanded' : ''}`} key={step.id}>
+                {index ? <Icon name="arrow" className="route-flow__arrow" /> : null}
+                <button type="button" className={`route-card route-card--clickable route-card--${stepStatus} route-card--station-${step.station}${step.isReplacement ? ' route-card--replacement' : ''}${isCurrent ? ' route-card--current' : ''}${isLive ? ' route-card--live' : ''}${isExpanded ? ' route-card--expanded' : ''}`} onClick={() => setExpandedStepId(isExpanded ? undefined : step.id)} aria-expanded={isExpanded}>
+                  <span>P{String(index + 1).padStart(2, '0')}</span>
+                  <b>{step.name}</b>
+                  <small>{stationLabels[step.station]}</small>
+                  <div className="route-card__badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{step.isReplacement ? <em className="replacement-indicator">↻ Penggantian</em> : null}{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div>
+                  <em className="route-card__toggle">{isExpanded ? 'Tutup' : 'Detail'}</em>
+                </button>
+                {isExpanded ? renderProcessDetail(step) : null}
+              </div>
             })}
-          </div>
-        </section>
-
-        <section className="drawer-section">
-          <div className="section-heading"><div><p className="eyebrow">Tiket proses</p><h3>{canViewAllProcessTickets ? 'Catat pekerjaan per stasiun' : 'Tiket proses saya'}</h3></div></div>
-          {!canViewAllProcessTickets ? <div className="assignment-scope-banner"><Icon name="user" /><span>Anda hanya dapat melihat dan menjalankan tiket yang ditugaskan langsung kepada akun Anda. Alur di atas tetap terlihat sebagai konteks WO.</span><b>{visibleProcessTickets.length} tiket</b></div> : null}
-          <div className="process-ticket-list">
-            {visibleProcessTickets.length ? visibleProcessTickets.map((step) => {
-              const stepStatus = deriveStepStatus(workOrder, step)
-              const inputCap = getAvailableInputCap(workOrder, step)
-              const canOperate = !isTerminalFulfilled && canOperateStep(currentUser, step)
-              const normalActionBlockedByRework = hasPendingRework && stepStatus !== 'in_progress'
-              const canAssign = !isTerminalFulfilled && ['admin', 'ppic'].includes(currentUser.role) && getStepRecordedQty(step) === 0 && !step.startedAt
-              const performerAccessMode = getMemberAccessMode(step.assignedUserId, staffDirectory)
-              const isAdminAssisted = performerAccessMode === 'admin_assisted' && ['admin', 'ppic'].includes(currentUser.role)
-              const isPrinting = step.station === 'printing'
-              const isStockInStep = isFinalStockInStep(workOrder, step)
-              const isPackingStep = isFinalPackingStep(workOrder, step)
-              const resultQtyLabel = isStockInStep ? 'Masuk gudang' : isPackingStep ? 'Siap kirim' : 'Hasil baik'
-              const stepExtra = getStepExtraQty(step)
-              const stepPendingRework = getStepPendingReworkQty(step)
-              const stepClassifiedQty = getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step)
-              const logResultLabel = isStockInStep ? 'Catat stok masuk' : isPackingStep ? 'Catat packing' : isAdminAssisted ? 'Catat hasil PIC' : 'Catat hasil'
-              const startBlocked = isPrinting && !artworkReadiness.ready
-              const isCurrent = currentStep?.id === step.id
-              const isLive = showLiveProcessIndicator && activeStep?.id === step.id
-              return <article className={`process-ticket process-ticket--station-${step.station}${step.isReplacement ? ' process-ticket--replacement' : ''}${isCurrent ? ' process-ticket--current' : ''}${isLive ? ' process-ticket--live' : ''}`} key={step.id}>
-                <header><div><span className="process-ticket__index">P{String(step.sequence).padStart(2, '0')} · {stationLabels[step.station]}</span><h4>{step.name}</h4><p>PIC: <b>{getMemberName(step.assignedUserId, team, staffDirectory)}</b> · Lapor ke: <b>{getMemberName(step.reportToUserId, team, staffDirectory, 'Belum ditetapkan')}</b> · Area: {step.location || 'Belum ditetapkan'} · Rencana: {step.scheduledDate ? formatDate(step.scheduledDate) : 'Belum dijadwalkan'}{step.isReplacement ? ' · Rute penggantian' : ''}</p></div><div className="process-ticket__header-badges"><Badge kind="station" value={step.station} /><Badge kind="process" value={stepStatus} />{step.isReplacement ? <em className="replacement-indicator">↻ Penggantian</em> : null}{isLive ? <em className="current-process-indicator">● Aktif sekarang</em> : null}</div></header>
-                <div className="process-ticket__meta-grid"><div><span>Target</span><b>{formatNumber(step.plannedQty)}</b></div><div><span>{resultQtyLabel}</span><b>{formatNumber(step.qtyGood)}</b></div><div><span>Sisa</span><b>{formatNumber(getStepRemaining(step))}</b></div><div><span>Timer</span><b>{formatDuration(getStepTimerSeconds(step, clock))}</b></div>{stepExtra > 0 ? <div><span>Extra produksi</span><b className="text-warning">+{formatNumber(stepExtra)}</b></div> : null}{stepPendingRework > 0 ? <div><span>Pending rework</span><b className="text-danger">{formatNumber(stepPendingRework)}</b></div> : null}{stepClassifiedQty > 0 ? <div><span>Grade/Hold/Scrap</span><b>{formatNumber(stepClassifiedQty)}</b></div> : null}</div>
-                <div className="process-ticket__input-panel">
-                  <div className="process-ticket__input-hero">
-                    <span>Input proses</span>
-                    <b>{step.inputs.length ? 'Perlu input proses' : 'Mulai langsung'}</b>
-                    <small>{step.inputs.length ? `${step.inputs.length} sumber input dibutuhkan` : 'Tidak menunggu hasil proses sebelumnya.'}</small>
-                  </div>
-                  <div className="process-ticket__input-chips">
-                    <span>Detail input</span>
-                    {step.inputs.length ? step.inputs.map((input) => <em key={input}>{input}<strong>{formatNumber(getWipBalance(workOrder, input))}</strong></em>) : <em>Tanpa input sebelumnya<strong>Siap</strong></em>}
-                  </div>
-                  <div className="process-ticket__input-capacity">
-                    <span>Kapasitas saat ini</span>
-                    <b>{Number.isFinite(inputCap) ? `${formatNumber(inputCap)} unit` : 'Siap'}</b>
-                    <small>{Number.isFinite(inputCap) ? 'Maksimal dapat diproses sekarang' : 'Proses dapat langsung dimulai'}</small>
-                  </div>
-                </div>
-                {isPrinting && finalArtwork ? <div className="printing-final-panel">
-                  <button type="button" onClick={() => setActiveArtwork(finalArtwork)}><img src={finalArtwork.dataUrl} alt={finalArtwork.name} /></button><div><span>{artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><b>{finalArtwork.name}</b><small>{finalArtwork.printNote || (artworkApprovalRequired ? 'Buka file final sebelum mulai cetak.' : 'File ini dapat dipakai sebagai referensi operator.')}</small>{artworkApprovalRequired ? (step.artworkConfirmedAt ? <em><Icon name="check" /> Diverifikasi oleh {step.artworkConfirmedBy} · {formatDateTime(step.artworkConfirmedAt)}</em> : <em><Icon name="warning" /> Operator wajib review dan konfirmasi file final saat mulai.</em>) : <em><Icon name="check" /> Approval artwork tidak diwajibkan untuk WO ini.</em>}</div>
-                </div> : null}
-                {isPrinting && artworkApprovalRequired && !finalArtwork ? <div className="printing-final-panel printing-final-panel--blocked"><Icon name="warning" /><div><b>Printing diblokir</b><small>{artworkReadiness.reason}</small></div></div> : null}
-                {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
-                {isAdminAssisted ? <div className="assisted-progress-box"><Icon name="user" /><span><b>Update dibantu Admin/PPIC.</b> PIC aktual tetap {getMemberName(step.assignedUserId, team, staffDirectory)}, tetapi progress dicatat oleh akun yang sedang login.</span></div> : null}
-                {isTerminalFulfilled ? <div className="process-ticket__locked-note"><Icon name="check" /> WO sudah terpenuhi. Tiket proses dikunci untuk mencegah input ganda.</div> : null}
-                <footer className="process-ticket__footer"><div className="process-ticket__actions">
-                  {canAssign ? <button className="button button--secondary" onClick={() => onAssign(step)}>Atur PIC</button> : null}
-                  {canOperate && !normalActionBlockedByRework && ['ready', 'partial_paused'].includes(stepStatus) ? <button className="button button--primary" disabled={startBlocked} title={startBlocked ? artworkReadiness.reason : undefined} onClick={() => onStart(step)}><Icon name="play" /> {stepStatus === 'partial_paused' ? 'Lanjutkan proses' : isPrinting ? (artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : isAdminAssisted ? 'Mulai atas nama PIC' : 'Mulai proses'}</button> : null}
-                  {canOperate && stepStatus === 'in_progress' ? <button className="button button--secondary" onClick={() => onPause(step)}><Icon name="pause" /> Jeda</button> : null}
-                  {canOperate && stepStatus === 'in_progress' && step.station === 'qc' ? <button className="button button--primary" onClick={() => onQcDecision(step)}>Keputusan QC</button> : null}
-                  {canOperate && stepStatus === 'in_progress' && step.station !== 'qc' ? <button className="button button--primary" onClick={() => onLogResult(step)}>{logResultLabel}</button> : null}
-                  {canOperate && !normalActionBlockedByRework && ['ready', 'partial_paused', 'in_progress'].includes(stepStatus) ? <button className="button button--danger-soft" onClick={() => onHold(step)}>HOLD</button> : null}
-                  {canOperate && stepStatus === 'hold' ? <button className="button button--success-soft" onClick={() => onResume(step)}>Lanjutkan</button> : null}
-                </div></footer>
-              </article>
-            }) : <div className="empty-state">Belum ada tiket proses yang ditugaskan langsung kepada akun ini.</div>}
           </div>
         </section>
 
