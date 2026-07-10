@@ -2028,6 +2028,15 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
       return { order, finalStep, finalGood, rejectTotal, reworkTotal, completedSteps, leadTimeDays, lateDays, productionSeconds, startedAt: startedTimes.length ? new Date(Math.min(...startedTimes)).toISOString() : undefined }
     })
 
+  const printRows = filtered.map((order) => {
+    const summary = getShortfallSummary(order)
+    const finalStep = getFinalProcessStep(order)
+    const finalGood = getPackingGood(order) || finalStep?.qtyGood || 0
+    const rejectTotal = order.steps.reduce((sum, step) => sum + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0)
+    const activeStep = getCurrentProcess(order)
+    return { order, summary, finalGood, rejectTotal, activeStep, status: deriveOrderStatus(order) }
+  })
+
   const tabs: Array<{ id: ReportTab; label: string }> = [
     { id: 'daily', label: 'Produksi Harian' },
     { id: 'finished', label: 'WO Selesai' },
@@ -2039,6 +2048,9 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
     { id: 'customer', label: 'Penyelesaian Customer' },
   ]
 
+  const activeReportLabel = tabs.find((item) => item.id === tab)?.label || 'Laporan operasional'
+  const generatedAtText = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(clock))
+
   return <section className="view-content reports-view">
     <div className="report-grid report-grid--metrics">
       <article className="surface-card"><p className="eyebrow">WO aktif</p><h2>{formatNumber(filtered.filter((order) => !['done', 'closed', 'cancelled'].includes(deriveOrderStatus(order))).length)}</h2><span>Scope laporan saat ini</span></article>
@@ -2048,7 +2060,12 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
     </div>
 
     <article className="surface-card report-workspace">
-      <header className="surface-card__header"><div><p className="eyebrow">Laporan operasional</p><h2>{tabs.find((item) => item.id === tab)?.label}</h2><span>Ringkasan utama memakai satu baris per WO. Detail proses dibuka hanya saat diperlukan.</span></div><button type="button" className="button button--secondary button--compact" onClick={() => window.print()}>Cetak laporan</button></header><div className="report-print-heading"><b>CV Pusat Grosir Eceran</b><h1>Laporan Operasional Work Order</h1><span>{todayText}</span></div>
+      <header className="surface-card__header"><div><p className="eyebrow">Laporan operasional</p><h2>{activeReportLabel}</h2><span>Ringkasan utama memakai satu baris per WO. Detail proses dibuka hanya saat diperlukan.</span></div><button type="button" className="button button--secondary button--compact" onClick={() => window.print()}>Cetak laporan</button></header>
+      <section className="report-print-document" aria-hidden="true">
+        <header className="report-print-document__header"><div><b>CV PUSAT GROSIR ECERAN</b><h1>Laporan Operasional Work Order</h1><span>{activeReportLabel}</span></div><aside><strong>{todayText}</strong><small>Dicetak: {generatedAtText}</small><small>Filter: {typeFilter === 'all' ? 'Semua tipe WO' : typeFilter === 'mts' ? 'Produksi Stok' : 'Pesanan Customer'} · {stationFilter === 'all' ? 'Semua stasiun' : stationLabels[stationFilter]}</small></aside></header>
+        <table className="report-print-table"><thead><tr><th>WO</th><th>Produk</th><th>Tipe</th><th>Target</th><th>Output final</th><th>Reject / klasifikasi</th><th>Extra</th><th>Pending rework</th><th>Status</th><th>Due</th><th>Proses saat ini</th></tr></thead><tbody>{printRows.length ? printRows.map(({ order, summary, finalGood, rejectTotal, activeStep, status }) => <tr key={order.id}><td><b>{order.code}</b><small>{order.source}</small></td><td>{order.product}</td><td>{order.type === 'mts' ? 'Produksi Stok' : 'Pesanan Customer'}</td><td>{formatNumber(order.qty)}</td><td>{formatNumber(finalGood)}<small>{order.type === 'mts' ? 'masuk gudang' : 'siap kirim'}</small></td><td>{formatNumber(rejectTotal)}</td><td>{formatNumber(summary.extraQty)}</td><td>{formatNumber(summary.pendingReworkQty)}</td><td>{statusLabels[status]}</td><td>{formatDate(order.dueDate)}</td><td>{activeStep ? `${activeStep.name} · ${stationLabels[activeStep.station]}` : summary.isFulfilled ? 'Siap ditutup PPIC' : 'Belum ditetapkan'}</td></tr>) : <tr><td colSpan={11}>Tidak ada WO pada filter ini.</td></tr>}</tbody></table>
+        <footer className="report-print-document__footer"><span>Dokumen dicetak dari PGE WO Control. Ringkasan memakai satu baris per WO; detail proses dibuka dari sistem saat audit diperlukan.</span><span>Halaman laporan operasional</span></footer>
+      </section>
       <div className="report-tabs">{tabs.map((item) => <button type="button" className={tab === item.id ? 'is-active' : ''} onClick={() => setTab(item.id)} key={item.id}>{item.label}</button>)}</div>
       <div className="filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari WO, produk, atau customer" /></label><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="all">Semua tipe WO</option><option value="mto">MTO · Pesanan customer</option><option value="mts">MTS · Buat stok</option></select><select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)}><option value="all">Semua stasiun</option>{Object.entries(stationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
 
