@@ -2074,6 +2074,40 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
     row.seconds += getOrderActiveSeconds(order, clock)
   })
 
+  const getReportOutputSummary = (order: WorkOrder) => {
+    const summary = getShortfallSummary(order)
+    const finalStep = getFinalProcessStep(order)
+    const finalGood = getPackingGood(order) || finalStep?.qtyGood || 0
+    const rejectTotal = order.steps.reduce((sum, step) => sum + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0)
+    return {
+      summary,
+      finalGood,
+      rejectTotal,
+      finalLabel: order.type === 'mts' ? 'Masuk gudang' : 'Siap kirim',
+      rejectLabel: order.type === 'mts' ? 'Reject / klasifikasi' : 'Reject / shortfall',
+    }
+  }
+
+  const getReportEvaluationNotes = (order: WorkOrder) => {
+    const { summary, rejectTotal } = getReportOutputSummary(order)
+    const notes: string[] = []
+    const status = deriveOrderStatus(order)
+    const finishedMs = order.closedAt
+      ? new Date(order.closedAt).getTime()
+      : order.steps.map((step) => step.completedAt).filter(Boolean).map((value) => new Date(value as string).getTime()).sort((a, b) => b - a)[0]
+    const lateDays = finishedMs ? Math.max(0, Math.ceil((finishedMs - new Date(`${order.dueDate}T23:59:59`).getTime()) / 86400000)) : (isOverdue(order) ? Math.max(1, Math.ceil((Date.now() - new Date(`${order.dueDate}T23:59:59`).getTime()) / 86400000)) : 0)
+    if (summary.pendingReworkQty > 0) notes.push(`Pending rework ${formatNumber(summary.pendingReworkQty)}`)
+    if (summary.awaitingApprovalQty > 0) notes.push(`Butuh keputusan PPIC ${formatNumber(summary.awaitingApprovalQty)}`)
+    if (summary.remainingQty > 0 && !summary.isFulfilled) notes.push(`Kurang ${formatNumber(summary.remainingQty)} unit`)
+    if (rejectTotal > 0) notes.push(`Ada reject/klasifikasi ${formatNumber(rejectTotal)}`)
+    if (summary.extraQty > 0) notes.push(`Extra produksi ${formatNumber(summary.extraQty)}`)
+    if (lateDays > 0) notes.push(`Terlambat ${lateDays} hari`)
+    if (status === 'done') notes.push('Perlu close PPIC')
+    if (status === 'closed') notes.push('Ditutup PPIC')
+    if (!notes.length) notes.push('Normal')
+    return notes
+  }
+
   const finishedRows = filtered
     .filter((order) => ['done', 'closed'].includes(deriveOrderStatus(order)) || Boolean(order.isArchived))
     .map((order) => {
@@ -2102,7 +2136,7 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
   })
 
   const tabs: Array<{ id: ReportTab; label: string }> = [
-    { id: 'daily', label: 'Produksi Harian' },
+    { id: 'daily', label: 'Ringkasan Produksi' },
     { id: 'finished', label: 'WO Selesai' },
     { id: 'overdue', label: 'WO Terlambat' },
     { id: 'defects', label: 'Reject & Defect' },
@@ -2258,16 +2292,14 @@ function ReportsView({ workOrders, directory, team, clock, onOpenOrder }: { work
         <footer className="report-print-document__footer"><span>Dokumen WO dicetak dari PGE WO Control.</span><span>{selectedPrintOrder.code}</span></footer>
       </section> : null}
       <div className="report-tabs">{tabs.map((item) => <button type="button" className={tab === item.id ? 'is-active' : ''} onClick={() => setTab(item.id)} key={item.id}>{item.label}</button>)}</div>
-      <div className="filter-row report-filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari WO, produk, atau customer" /></label><label className="date-filter-field"><span>Dari tanggal WO</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="date-filter-field"><span>Sampai tanggal WO</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="all">Semua tipe WO</option><option value="mto">MTO · Pesanan customer</option><option value="mts">MTS · Buat stok</option></select><select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)}><option value="all">Semua stasiun</option>{Object.entries(stationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+      <div className="filter-row report-filter-row"><label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari WO, produk, atau customer" /></label><label className="date-filter-field"><span>Dari tanggal dibuat WO</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="date-filter-field"><span>Sampai tanggal dibuat WO</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="all">Semua tipe WO</option><option value="mto">MTO · Pesanan customer</option><option value="mts">MTS · Buat stok</option></select><select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)}><option value="all">Semua stasiun</option>{Object.entries(stationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
 
-      {tab === 'daily' ? <div className="table-wrap report-table-wrap"><table className="wo-table report-table report-summary-table"><thead><tr><th>WO / Produk</th><th>Tipe</th><th>Target</th><th>Output final</th><th>Status</th><th>Catatan</th><th /></tr></thead><tbody>{filtered.length ? filtered.map((order) => {
-        const summary = getShortfallSummary(order)
-        const finalStep = getFinalProcessStep(order)
-        const finalGood = getPackingGood(order) || finalStep?.qtyGood || 0
-        const rejectTotal = order.steps.reduce((sum, step) => sum + step.qtyReject + getStepGradeBQty(step) + getStepHoldSortirQty(step) + getStepScrapQty(step), 0)
+      {tab === 'daily' ? <div className="table-wrap report-table-wrap"><table className="wo-table report-table report-summary-table report-summary-table--polished"><thead><tr><th>WO / Produk</th><th>Tipe</th><th>Target</th><th>Output final</th><th>Status</th><th>Catatan evaluasi</th><th /></tr></thead><tbody>{filtered.length ? filtered.map((order) => {
+        const { summary, finalGood, rejectTotal, finalLabel, rejectLabel } = getReportOutputSummary(order)
+        const notes = getReportEvaluationNotes(order)
         const isExpanded = expandedReportOrderId === order.id
         return <>
-          <tr key={`${order.id}-summary`} className="report-summary-row"><td><button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button></td><td><Badge kind="type" value={order.type} /><small>{order.source}</small></td><td><b>{formatNumber(order.qty)}</b><small>Due {formatDate(order.dueDate)}</small></td><td><b>{formatNumber(finalGood)}</b><small>{order.type === 'mts' ? 'masuk gudang' : 'siap kirim'} · {formatNumber(rejectTotal)} reject/klasifikasi · extra {formatNumber(summary.extraQty)}</small></td><td><Badge kind="status" value={deriveOrderStatus(order)} /><small>{getBlockerSummary(order) || (summary.isFulfilled ? 'Terpenuhi' : 'Tidak ada blocker')}</small></td><td>{summary.pendingReworkQty > 0 ? <span className="text-danger">Pending rework {formatNumber(summary.pendingReworkQty)}</span> : summary.remainingQty > 0 ? <span>Kurang {formatNumber(summary.remainingQty)}</span> : <span>Ringkasan WO</span>}</td><td><div className="report-row-actions"><button type="button" className="button button--secondary button--compact" onClick={() => setExpandedReportOrderId(isExpanded ? null : order.id)}>{isExpanded ? 'Tutup detail' : 'Detail proses'}</button><button type="button" className="button button--secondary button--compact" onClick={() => printWorkOrder(order)}>Cetak WO</button></div></td></tr>
+          <tr key={`${order.id}-summary`} className="report-summary-row report-summary-row--polished"><td><button className="text-button" onClick={() => onOpenOrder(order)}>{order.code}<small>{order.product}</small></button></td><td><Badge kind="type" value={order.type} /><small>{order.source}</small></td><td><b>{formatNumber(order.qty)}</b><small>Due {formatDate(order.dueDate)}</small></td><td><div className="report-output-stack"><b>{finalLabel}: {formatNumber(finalGood)}</b><span>{rejectLabel}: {formatNumber(rejectTotal)}</span><span>Extra: {formatNumber(summary.extraQty)}</span></div></td><td><div className="report-status-stack"><Badge kind="status" value={deriveOrderStatus(order)} /><small>{getBlockerSummary(order) || (deriveOrderStatus(order) === 'done' ? 'Siap close PPIC' : deriveOrderStatus(order) === 'closed' ? 'Sudah ditutup PPIC' : summary.isFulfilled ? 'Terpenuhi' : 'Tidak ada blocker')}</small></div></td><td><div className="report-note-list">{notes.map((note) => <span key={note} className={note === 'Normal' || note === 'Ditutup PPIC' ? 'report-note report-note--good' : 'report-note report-note--attention'}>{note}</span>)}</div></td><td><div className="report-row-actions"><button type="button" className="button button--secondary button--compact" onClick={() => setExpandedReportOrderId(isExpanded ? null : order.id)}>{isExpanded ? 'Tutup detail' : 'Detail proses'}</button><button type="button" className="button button--secondary button--compact" onClick={() => printWorkOrder(order)}>Cetak WO</button></div></td></tr>
           {isExpanded ? <tr key={`${order.id}-detail`} className="report-detail-row"><td colSpan={7}><div className="report-process-detail">{order.steps.map((step) => <article key={step.id}><span>P{String(step.sequence).padStart(2, '0')}</span><b>{step.name}</b><em>{stationLabels[step.station]}</em><small>PIC: {nameOf(step.assignedUserId)} · Output {formatNumber(step.qtyGood)} · Rework {formatNumber(step.qtyRework)} · Reject {formatNumber(step.qtyReject)}</small><Badge kind="process" value={deriveStepStatus(order, step)} /></article>)}</div></td></tr> : null}
         </>
       }) : <tr><td colSpan={7}><div className="empty-state">Belum ada WO pada filter ini.</div></td></tr>}</tbody></table></div> : null}
