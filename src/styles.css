@@ -3565,3 +3565,223 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
 .field-hint--warning {
   color: #92400e;
 }
+
+/* v0.5.0 — drag/drop PIC assignment in deploy modal */
+.pic-assignment-board {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e7e7e1;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.pic-assignment-board__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.pic-assignment-board__header b {
+  display: block;
+  color: #262626;
+  font-size: 0.9rem;
+}
+
+.pic-assignment-board__header span {
+  display: block;
+  margin-top: 3px;
+  color: #777;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.pic-assignment-board__filters {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, .8fr);
+  gap: 8px;
+  min-width: min(420px, 48%);
+}
+
+.pic-assignment-board__filters input,
+.pic-assignment-board__filters select {
+  height: 38px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+
+.pic-assignment-board__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  max-height: 178px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.pic-drag-card {
+  display: grid;
+  gap: 8px;
+  min-height: 76px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fafafa;
+  cursor: grab;
+  transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease, opacity .14s ease;
+}
+
+.pic-drag-card:hover {
+  border-color: #d39b00;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .08);
+  transform: translateY(-1px);
+}
+
+.pic-drag-card.is-dragging {
+  opacity: .55;
+  cursor: grabbing;
+  border-color: #d39b00;
+  background: #fff7d6;
+}
+
+.pic-drag-card b {
+  display: block;
+  color: #191919;
+  font-size: 0.86rem;
+  line-height: 1.25;
+}
+
+.pic-drag-card span {
+  display: block;
+  margin-top: 2px;
+  color: #777;
+  font-size: 0.72rem;
+}
+
+.pic-drag-card__stations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pic-drag-card__stations small {
+  border: 1px solid #e9dcc2;
+  border-radius: 999px;
+  padding: 3px 6px;
+  background: #fffaf0;
+  color: #7c4a03;
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.pic-assignment-board__empty {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px dashed #d1d5db;
+  border-radius: 12px;
+  color: #777;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.deployment-step {
+  grid-template-columns: 48px minmax(160px, .9fr) minmax(150px, 1fr) minmax(150px, 1fr);
+  grid-template-areas:
+    "seq process drop drop"
+    "seq process date station"
+    "seq process pic report"
+    "seq process area area";
+}
+
+.deployment-step__dropzone {
+  grid-area: drop;
+  display: grid;
+  gap: 3px;
+  min-height: 46px;
+  align-content: center;
+  padding: 9px 11px;
+  border: 1px dashed #d6d3d1;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .72);
+  color: #6b5d49;
+}
+
+.deployment-step__dropzone span {
+  color: #27272a;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.deployment-step__dropzone small {
+  color: #777;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.deployment-step--drag-over {
+  border-color: #d39b00;
+  box-shadow: 0 0 0 3px rgba(245, 183, 0, .18);
+}
+
+.deployment-step--drag-over .deployment-step__dropzone {
+  border-color: #d39b00;
+  background: #fff7d6;
+}
+
+.deployment-step--drag-invalid {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, .13);
+}
+
+.deployment-step--drag-invalid .deployment-step__dropzone {
+  border-color: #ef4444;
+  background: #fff1f2;
+  color: #991b1b;
+}
+
+@media (max-width: 920px) {
+  .pic-assignment-board__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pic-assignment-board__filters {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .deployment-step {
+    grid-template-columns: 42px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "seq process process"
+      "drop drop drop"
+      "date date station"
+      "pic pic report"
+      "area area area";
+  }
+}
+
+@media (max-width: 640px) {
+  .pic-assignment-board__filters {
+    grid-template-columns: 1fr;
+  }
+
+  .pic-assignment-board__list {
+    max-height: 220px;
+  }
+
+  .deployment-step {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "seq"
+      "process"
+      "drop"
+      "date"
+      "station"
+      "pic"
+      "report"
+      "area";
+  }
+}
