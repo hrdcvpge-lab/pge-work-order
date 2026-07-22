@@ -3989,3 +3989,190 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
     grid-template-columns: 1fr;
   }
 }
+
+/* v0.5.2 — sticky PIC sidebar + compact draggable cards
+   Keep PIC board visible while assigning long WO routes. */
+@media (min-width: 1041px) {
+  .modal-card--wide {
+    width: min(1280px, calc(100vw - 32px));
+  }
+
+  .deployment-assignment-layout {
+    grid-template-columns: minmax(230px, 268px) minmax(0, 1fr);
+    gap: 14px;
+    align-items: stretch;
+    height: min(660px, calc(100dvh - 305px));
+    min-height: 500px;
+    max-height: calc(100dvh - 245px);
+    overflow: hidden;
+  }
+
+  .deployment-assignment-layout__pic-panel {
+    position: relative;
+    top: auto;
+    z-index: 4;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .deployment-assignment-layout__steps {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    scrollbar-gutter: stable;
+  }
+
+  .deployment-assignment-layout .deployment-plan__steps {
+    padding-bottom: 8px;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board {
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board__header {
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board__header b {
+    font-size: .86rem;
+    line-height: 1.15;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board__header span {
+    max-width: 28ch;
+    font-size: .66rem;
+    line-height: 1.35;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board__filters {
+    gap: 7px;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board__filters input,
+  .deployment-assignment-layout .pic-assignment-board__filters select {
+    height: 34px;
+    border-radius: 9px;
+    font-size: .76rem;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board__list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: 6px;
+    padding: 1px 4px 1px 0;
+  }
+}
+
+.pic-drag-card {
+  min-height: 58px;
+  gap: 5px;
+  padding: 8px 9px;
+  border-radius: 11px;
+}
+
+.pic-drag-card__main b {
+  font-size: .78rem;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.pic-drag-card__main span {
+  margin-top: 1px;
+  font-size: .66rem;
+  line-height: 1.2;
+}
+
+.pic-drag-card__meta {
+  gap: 4px;
+}
+
+.pic-drag-card__meta small {
+  min-height: 17px;
+  padding: 2px 6px;
+  font-size: .56rem;
+  line-height: 1;
+}
+
+.pic-drag-card__stations {
+  gap: 3px;
+}
+
+.pic-drag-card__stations small,
+.station-chip {
+  padding: 2px 6px !important;
+  font-size: .56rem !important;
+  line-height: 1 !important;
+}
+
+.deployment-assignment-layout .deployment-step {
+  grid-template-columns: 44px minmax(150px, .72fr) minmax(140px, 1fr) minmax(140px, 1fr);
+  gap: 9px 11px;
+  padding: 13px;
+}
+
+.deployment-assignment-layout .deployment-step__sequence {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: .66rem;
+}
+
+.deployment-assignment-layout .deployment-step__process b {
+  font-size: .86rem;
+}
+
+.deployment-assignment-layout .deployment-step__process span {
+  font-size: .7rem;
+}
+
+.deployment-assignment-layout .deployment-step__dropzone {
+  min-height: 38px;
+  gap: 2px;
+  padding: 7px 10px;
+  border-radius: 10px;
+}
+
+.deployment-assignment-layout .deployment-step__dropzone span {
+  font-size: .76rem;
+}
+
+.deployment-assignment-layout .deployment-step__dropzone small {
+  font-size: .64rem;
+  line-height: 1.25;
+}
+
+.deployment-assignment-layout .deployment-step select,
+.deployment-assignment-layout .deployment-step input {
+  height: 38px;
+  font-size: .8rem;
+}
+
+.deployment-assignment-layout .deployment-step label > span {
+  font-size: .62rem;
+}
+
+@media (max-width: 1040px) {
+  .deployment-assignment-layout {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .deployment-assignment-layout__steps {
+    overflow: visible;
+    height: auto;
+    padding-right: 0;
+  }
+}
