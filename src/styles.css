@@ -4176,3 +4176,157 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
     padding-right: 0;
   }
 }
+
+/* v0.5.3 — PIC sidebar list redesign
+   Simpler rows for drag/drop: no overlapping station chips, wider sidebar, calmer scan. */
+@media (min-width: 1041px) {
+  .deployment-assignment-layout {
+    grid-template-columns: minmax(300px, 324px) minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board {
+    padding: 12px;
+  }
+
+  .deployment-assignment-layout .pic-assignment-board__list {
+    gap: 8px;
+    padding-right: 6px;
+  }
+}
+
+.pic-drag-card {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  min-height: 86px !important;
+  height: auto !important;
+  gap: 4px !important;
+  padding: 10px 10px 9px 12px !important;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--pic-color, #d39b00) 20%, #e5e7eb) !important;
+  border-left: 4px solid var(--pic-color, #d39b00) !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  box-shadow: none;
+}
+
+.pic-drag-card::after {
+  display: none !important;
+}
+
+.pic-drag-card:hover {
+  border-color: color-mix(in srgb, var(--pic-color, #d39b00) 42%, #d1d5db) !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .07);
+  transform: translateY(-1px);
+}
+
+.pic-drag-card.is-dragging {
+  opacity: .62;
+  background: color-mix(in srgb, var(--pic-bg, #fffaf0) 46%, #fff) !important;
+}
+
+.pic-drag-card__main,
+.pic-drag-card__meta,
+.pic-drag-card__stations {
+  position: static !important;
+  z-index: auto !important;
+  min-width: 0;
+}
+
+.pic-drag-card__main {
+  order: 1;
+  display: grid;
+  gap: 1px;
+}
+
+.pic-drag-card__main b {
+  display: block;
+  max-width: 100%;
+  color: #111827;
+  font-size: .86rem !important;
+  font-weight: 900;
+  line-height: 1.12 !important;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pic-drag-card__main span {
+  margin: 0 !important;
+  color: #6b7280;
+  font-size: .68rem !important;
+  line-height: 1.2 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pic-drag-card__meta {
+  order: 2;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px !important;
+  margin-top: 1px;
+}
+
+.pic-drag-card__meta small {
+  display: block !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #57534e !important;
+  font-size: .63rem !important;
+  font-weight: 800 !important;
+  line-height: 1.15 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pic-drag-card__meta small + small {
+  color: #374151 !important;
+  font-weight: 900 !important;
+}
+
+.pic-drag-card__stations {
+  order: 3;
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px !important;
+  min-height: 17px;
+  max-height: 38px;
+  margin-top: 3px;
+  overflow: hidden;
+}
+
+.pic-drag-card__stations small,
+.pic-drag-card .station-chip {
+  position: static !important;
+  display: inline-flex !important;
+  align-items: center;
+  max-width: 100%;
+  min-height: 17px !important;
+  padding: 2px 6px !important;
+  border: 1px solid color-mix(in srgb, var(--chip-color, var(--pic-color, #d39b00)) 28%, #fff) !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--chip-color, var(--pic-color, #d39b00)) 10%, #fff) !important;
+  color: color-mix(in srgb, var(--chip-color, var(--pic-color, #d39b00)) 70%, #111827) !important;
+  font-size: .58rem !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1040px) {
+  .pic-drag-card {
+    min-height: 82px !important;
+  }
+}
