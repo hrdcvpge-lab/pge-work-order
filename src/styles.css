@@ -4330,3 +4330,380 @@ h2 { color: #1d1d1d; font-size: 17px; line-height: 1.2; letter-spacing: -.025em;
     min-height: 82px !important;
   }
 }
+
+/* v0.5.4 — assignment wizard simplification */
+.deployment-wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  max-height: min(68vh, 760px);
+  overflow: hidden;
+}
+
+.deployment-wizard-layout__pic-panel {
+  min-width: 0;
+  height: min(68vh, 760px);
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+
+.deployment-wizard-layout__pic-panel .pic-assignment-board {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.deployment-wizard-layout__pic-panel .pic-assignment-board__header {
+  padding: 12px;
+  gap: 10px;
+}
+
+.deployment-wizard-layout__pic-panel .pic-assignment-board__header b {
+  font-size: 14px;
+}
+
+.deployment-wizard-layout__pic-panel .pic-assignment-board__header span {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.deployment-wizard-layout__pic-panel .pic-assignment-board__filters {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.deployment-wizard-layout__pic-panel .pic-assignment-board__list {
+  height: auto;
+  max-height: none;
+  overflow-y: auto;
+  padding: 10px;
+  gap: 8px;
+}
+
+.deployment-wizard-layout__pic-panel .pic-drag-card {
+  padding: 10px 10px 9px 12px;
+  min-height: 0;
+  border-radius: 12px;
+}
+
+.deployment-wizard-layout__pic-panel .pic-drag-card__main b {
+  font-size: 13px;
+  line-height: 1.15;
+}
+
+.deployment-wizard-layout__pic-panel .pic-drag-card__main span,
+.deployment-wizard-layout__pic-panel .pic-drag-card__meta small {
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+
+.deployment-wizard-layout__pic-panel .pic-drag-card__stations {
+  margin-top: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.deployment-wizard-layout__pic-panel .station-chip {
+  font-size: 9.5px;
+  padding: 2px 6px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.deployment-wizard-layout__main {
+  min-width: 0;
+  height: min(68vh, 760px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.assignment-wizard {
+  display: grid;
+  gap: 14px;
+}
+
+.assignment-wizard__header {
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.assignment-wizard__header h4 {
+  margin: 2px 0 4px;
+  font-size: 18px;
+}
+
+.assignment-wizard__header span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.assignment-wizard__progress {
+  height: 8px;
+  margin-top: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e5e7eb;
+}
+
+.assignment-wizard__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f5b301, #16a34a);
+}
+
+.assignment-wizard__summary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.assignment-wizard-summary {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.assignment-wizard-summary:hover {
+  border-color: #f5b301;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.assignment-wizard-summary--active {
+  border-color: #f5b301;
+  background: #fff9e6;
+  box-shadow: 0 0 0 3px rgba(245, 179, 1, 0.14);
+}
+
+.assignment-wizard-summary--complete {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.assignment-wizard-summary--active.assignment-wizard-summary--complete {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+}
+
+.assignment-wizard-summary__seq {
+  width: 38px;
+  height: 30px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #111827;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.assignment-wizard-summary__main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.assignment-wizard-summary__main b {
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.assignment-wizard-summary__main small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.assignment-wizard-summary__status {
+  justify-self: end;
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: #f3f4f6;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.assignment-wizard-summary__status.is-complete {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.assignment-wizard-card {
+  border: 1px solid #e5e7eb;
+  border-left: 6px solid #f5b301;
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+  background: #fff;
+  box-shadow: 0 14px 35px rgba(15, 23, 42, 0.08);
+}
+
+.assignment-wizard-card.deployment-step--station-printing { border-left-color: #2563eb; background: #f8fbff; }
+.assignment-wizard-card.deployment-step--station-cutting { border-left-color: #ea580c; background: #fffaf5; }
+.assignment-wizard-card.deployment-step--station-sewing { border-left-color: #7c3aed; background: #fbf7ff; }
+.assignment-wizard-card.deployment-step--station-finishing { border-left-color: #db2777; background: #fff7fb; }
+.assignment-wizard-card.deployment-step--station-qc { border-left-color: #059669; background: #f3fff8; }
+.assignment-wizard-card.deployment-step--station-packing { border-left-color: #65a30d; background: #f7fee7; }
+.assignment-wizard-card.deployment-step--station-warehouse { border-left-color: #b45309; background: #fffaf0; }
+
+.assignment-wizard-card__intro {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.assignment-wizard-card__station {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+  text-align: right;
+  color: #111827;
+}
+
+.assignment-wizard-card__station small {
+  color: #64748b;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 900;
+}
+
+.assignment-wizard-card__station b {
+  font-size: 14px;
+}
+
+.assignment-wizard-card__dropzone {
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.72);
+  display: grid;
+  gap: 2px;
+}
+
+.assignment-wizard-card__dropzone span {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.assignment-wizard-card__dropzone small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.assignment-wizard-card.deployment-step--drag-over .assignment-wizard-card__dropzone {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.assignment-wizard-card.deployment-step--drag-invalid .assignment-wizard-card__dropzone {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+
+.assignment-wizard-card__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.assignment-wizard-card__fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.assignment-wizard-card__wide {
+  grid-column: 1 / -1;
+}
+
+.assignment-wizard-card__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+@media (max-width: 980px) {
+  .deployment-wizard-layout {
+    grid-template-columns: 1fr;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .deployment-wizard-layout__pic-panel,
+  .deployment-wizard-layout__main {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .deployment-wizard-layout__pic-panel .pic-assignment-board__list {
+    max-height: 260px;
+  }
+
+  .assignment-wizard-card__intro,
+  .assignment-wizard-summary {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .assignment-wizard-card__station,
+  .assignment-wizard-summary__status {
+    grid-column: 2;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .assignment-wizard-card__fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .assignment-wizard-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-wizard-summary__seq,
+  .assignment-wizard-summary__status {
+    justify-self: start;
+  }
+
+  .assignment-wizard-card__intro {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-wizard-card__actions {
+    flex-direction: column;
+  }
+
+  .assignment-wizard-card__actions .button {
+    width: 100%;
+  }
+}

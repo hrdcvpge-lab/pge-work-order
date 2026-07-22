@@ -1632,6 +1632,7 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
   const [picStationFilter, setPicStationFilter] = useState<Station | 'all'>('all')
   const [draggedPicId, setDraggedPicId] = useState('')
   const [dragOverStepId, setDragOverStepId] = useState('')
+  const [activePlanStepId, setActivePlanStepId] = useState(workOrder.steps[0]?.id || '')
   const artworkReadiness = getArtworkReadiness(workOrder)
   const availablePicCards = useMemo(() => {
     const normalizedSearch = picSearch.trim().toLowerCase()
@@ -1644,6 +1645,39 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
       })
       .sort((first, second) => first.name.localeCompare(second.name))
   }, [directory, team, picSearch, picStationFilter])
+
+  const isPlanStepComplete = (step: ProcessStep) => Boolean(step.assignedUserId && step.reportToUserId && step.location && step.scheduledDate)
+  const completedPlanCount = plannedSteps.filter(isPlanStepComplete).length
+  const firstIncompleteStep = plannedSteps.find((step) => !isPlanStepComplete(step))
+  const activePlanStep = plannedSteps.find((step) => step.id === activePlanStepId) || firstIncompleteStep || plannedSteps[0]
+  const activePlanIndex = activePlanStep ? plannedSteps.findIndex((step) => step.id === activePlanStep.id) : -1
+  const activeAssignedPic = activePlanStep ? directory.find((member) => member.id === activePlanStep.assignedUserId) : undefined
+  const activeAssignedReportTo = activePlanStep ? getDirectoryName(activePlanStep.reportToUserId, directory, 'Lapor ke belum dipilih') : ''
+  const activeDraggedPic = directory.find((member) => member.id === draggedPicId)
+  const isActiveDragOver = Boolean(activePlanStep && dragOverStepId === activePlanStep.id)
+  const isActiveInvalidDrop = Boolean(isActiveDragOver && activePlanStep && activeDraggedPic && !activeDraggedPic.allowedStations?.includes(activePlanStep.station))
+
+  useEffect(() => {
+    if (!plannedSteps.length) return
+    if (!plannedSteps.some((step) => step.id === activePlanStepId)) {
+      setActivePlanStepId((firstIncompleteStep || plannedSteps[0]).id)
+    }
+  }, [activePlanStepId, firstIncompleteStep, plannedSteps])
+
+  const goToNextPlanStep = () => {
+    if (!activePlanStep) return
+    if (!isPlanStepComplete(activePlanStep)) {
+      setError(`Lengkapi ${activePlanStep.name}: tanggal, PIC, lapor ke, dan area kerja sebelum lanjut.`)
+      return
+    }
+    const nextIncomplete = plannedSteps.find((step, index) => index > activePlanIndex && !isPlanStepComplete(step)) || plannedSteps.find((step) => !isPlanStepComplete(step))
+    if (nextIncomplete) {
+      setError('')
+      setActivePlanStepId(nextIncomplete.id)
+      return
+    }
+    setError('Semua proses sudah lengkap. Klik Deploy WO untuk mengunci jadwal dan penugasan.')
+  }
 
   const updatePlan = (stepId: string, patch: Partial<ProcessStep>) => {
     setPlannedSteps((current) => current.map((step) => {
@@ -1721,43 +1755,87 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
       <section className="deployment-plan__section">
         <div><p className="eyebrow">Penugasan sebelum deploy</p><h3>Rute, PIC, pelaporan, dan area</h3><span>Semua pilihan menggunakan dropdown agar WO tetap konsisten dan mudah dibaca operator.</span></div>
         <div className="deployment-plan__legend"><span><i className="legend-dot legend-dot--required" /> Wajib sebelum deploy</span><span><i className="legend-dot legend-dot--station" /> Warna mengikuti stasiun proses</span><span><i className="legend-dot legend-dot--station" /> Drag PIC ke kartu proses, dropdown tetap tersedia</span></div>
-        <div className="deployment-assignment-layout">
-          <aside className="deployment-assignment-layout__pic-panel">
+        <div className="deployment-wizard-layout">
+          <aside className="deployment-wizard-layout__pic-panel">
             <section className="pic-assignment-board" aria-label="Drag and drop PIC ke proses">
-              <header className="pic-assignment-board__header"><div><b>PIC tersedia</b><span>Tarik kartu ke proses. Lapor ke dan area otomatis mengikuti People & Station.</span></div><div className="pic-assignment-board__filters"><input value={picSearch} onChange={(event) => setPicSearch(event.target.value)} placeholder="Cari PIC / kode" /><select value={picStationFilter} onChange={(event) => setPicStationFilter(event.target.value as Station | 'all')}><option value="all">Semua stasiun</option>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></div></header>
+              <header className="pic-assignment-board__header">
+                <div>
+                  <b>PIC tersedia</b>
+                  <span>Tarik ke proses aktif. Dropdown tetap tersedia untuk input manual.</span>
+                </div>
+                <div className="pic-assignment-board__filters">
+                  <input value={picSearch} onChange={(event) => setPicSearch(event.target.value)} placeholder="Cari PIC / kode" />
+                  <select value={picStationFilter} onChange={(event) => setPicStationFilter(event.target.value as Station | 'all')}>
+                    <option value="all">Semua stasiun</option>
+                    {Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                  </select>
+                </div>
+              </header>
               <div className="pic-assignment-board__list">
                 {availablePicCards.length ? availablePicCards.map((member) => {
                   const primaryStation = picStationFilter !== 'all' && member.allowedStations?.includes(picStationFilter) ? picStationFilter : member.allowedStations?.[0]
                   const accessLabel = member.accessMode === 'self_service' ? 'Login mandiri' : member.accessMode === 'admin_assisted' ? 'Bantu admin' : 'Tanpa login'
                   return <article className={`pic-drag-card pic-drag-card--station-${primaryStation || 'none'}${draggedPicId === member.id ? ' is-dragging' : ''}`} key={member.id} draggable onDragStart={(event) => { setDraggedPicId(member.id); event.dataTransfer.setData('text/plain', member.id); event.dataTransfer.effectAllowed = 'copy' }} onDragEnd={() => { setDraggedPicId(''); setDragOverStepId('') }}>
-                    <div className="pic-drag-card__main"><b>{member.name}</b><span>{member.employeeNumber || 'Tanpa kode'}</span></div>
-                    <div className="pic-drag-card__meta"><small>{accessLabel}</small>{member.defaultReportToUserId ? <small>Lapor: {getDirectoryName(member.defaultReportToUserId, directory, '—')}</small> : <small>Belum ada lapor ke</small>}</div>
+                    <div className="pic-drag-card__main"><b>{member.name}</b><span>{member.employeeNumber || 'Tanpa kode'} · {accessLabel}</span></div>
+                    <div className="pic-drag-card__meta">{member.defaultReportToUserId ? <small>Lapor: {getDirectoryName(member.defaultReportToUserId, directory, '—')}</small> : <small>Belum ada lapor ke</small>}</div>
                     <div className="pic-drag-card__stations">{(member.allowedStations || []).map((station) => <small className={`station-chip station-chip--${station}`} key={station}>{stationLabels[station]}</small>)}</div>
                   </article>
                 }) : <div className="pic-assignment-board__empty">Tidak ada PIC aktif sesuai filter. Atur akses personel di People & Station.</div>}
               </div>
             </section>
           </aside>
-          <div className="deployment-assignment-layout__steps">
-            <div className="deployment-plan__steps">
-              {plannedSteps.map((step, index) => {
-            const assignedPic = directory.find((member) => member.id === step.assignedUserId)
-            const assignedReportTo = getDirectoryName(step.reportToUserId, directory, 'Lapor ke belum dipilih')
-            const draggedPic = directory.find((member) => member.id === draggedPicId)
-            const isDragOver = dragOverStepId === step.id
-            const isInvalidDrop = Boolean(isDragOver && draggedPic && !draggedPic.allowedStations?.includes(step.station))
-            return <article className={`deployment-step deployment-step--station-${step.station}${isDragOver ? ' deployment-step--drag-over' : ''}${isInvalidDrop ? ' deployment-step--drag-invalid' : ''}`} key={step.id} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOverStepId(step.id) }} onDragLeave={() => setDragOverStepId('')} onDrop={(event) => { event.preventDefault(); const picId = event.dataTransfer.getData('text/plain') || draggedPicId; setDragOverStepId(''); assignPicToStep(step, picId) }}>
-            <div className="deployment-step__sequence">P{String(index + 1).padStart(2, '0')}</div>
-            <div className="deployment-step__process"><b>{step.name}</b><span>{step.inputs.length ? `Butuh: ${step.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {step.output}</span></div>
-            <div className="deployment-step__dropzone"><span>{assignedPic ? `PIC: ${assignedPic.name}` : 'Drop PIC ke proses ini'}</span><small>{assignedPic ? `${assignedPic.employeeNumber || 'Tanpa kode'} · ${assignedReportTo}` : `Stasiun: ${stationLabels[step.station]} · atau gunakan dropdown`}</small></div>
-            <label><span>Tanggal rencana *</span><input type="date" value={step.scheduledDate || scheduledDate} onChange={(event) => updatePlan(step.id, { scheduledDate: event.target.value })} /></label>
-            <label><span>Stasiun</span><select value={step.station} onChange={(event) => updatePlan(step.id, { station: event.target.value as Station })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-            <label><span className="field-label-with-help">PIC pelaksana *<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Hanya PIC yang punya akses ke stasiun ini yang bisa dipilih. Default lapor ke dan area kerja akan mengikuti pengaturan People & Station.</span></span></span><select value={step.assignedUserId || ''} onChange={(event) => updatePlan(step.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(step.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
-            <label><span>Lapor ke *</span><select value={step.reportToUserId || ''} onChange={(event) => updatePlan(step.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select>{step.assignedUserId && !directory.find((member) => member.id === step.assignedUserId)?.defaultReportToUserId ? <small className="field-hint field-hint--warning">PIC ini belum punya default lapor ke. Pilih manual atau atur di People & Station.</small> : null}</label>
-            <label><span>Area kerja / laporan hasil *</span><select value={step.location || ''} onChange={(event) => updatePlan(step.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
-          </article>
-              })}
-            </div>
+
+          <div className="deployment-wizard-layout__main">
+            <section className="assignment-wizard">
+              <header className="assignment-wizard__header">
+                <div>
+                  <p className="eyebrow">Wizard penugasan</p>
+                  <h4>{completedPlanCount}/{plannedSteps.length} proses lengkap</h4>
+                  <span>Isi proses berurutan. Proses yang sudah lengkap otomatis menjadi ringkasan.</span>
+                </div>
+                <div className="assignment-wizard__progress"><span style={{ width: `${plannedSteps.length ? Math.round((completedPlanCount / plannedSteps.length) * 100) : 0}%` }} /></div>
+              </header>
+
+              <div className="assignment-wizard__summary-list">
+                {plannedSteps.map((step, index) => {
+                  const assignedPic = directory.find((member) => member.id === step.assignedUserId)
+                  const assignedReportTo = getDirectoryName(step.reportToUserId, directory, 'Lapor ke belum dipilih')
+                  const complete = isPlanStepComplete(step)
+                  const active = activePlanStep?.id === step.id
+                  return <button type="button" className={`assignment-wizard-summary${active ? ' assignment-wizard-summary--active' : ''}${complete ? ' assignment-wizard-summary--complete' : ''}`} key={step.id} onClick={() => { setError(''); setActivePlanStepId(step.id) }}>
+                    <span className="assignment-wizard-summary__seq">P{String(index + 1).padStart(2, '0')}</span>
+                    <span className="assignment-wizard-summary__main"><b>{step.name}</b><small>{stationLabels[step.station]}{assignedPic ? ` · ${assignedPic.name} → ${assignedReportTo}` : ' · belum ada PIC'}</small></span>
+                    <span className={`assignment-wizard-summary__status${complete ? ' is-complete' : ''}`}>{complete ? '✓ Lengkap' : active ? 'Isi sekarang' : 'Belum lengkap'}</span>
+                  </button>
+                })}
+              </div>
+
+              {activePlanStep ? <article className={`assignment-wizard-card deployment-step--station-${activePlanStep.station}${isActiveDragOver ? ' deployment-step--drag-over' : ''}${isActiveInvalidDrop ? ' deployment-step--drag-invalid' : ''}`} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOverStepId(activePlanStep.id) }} onDragLeave={() => setDragOverStepId('')} onDrop={(event) => { event.preventDefault(); const picId = event.dataTransfer.getData('text/plain') || draggedPicId; setDragOverStepId(''); assignPicToStep(activePlanStep, picId) }}>
+                <div className="assignment-wizard-card__intro">
+                  <div className="deployment-step__sequence">P{String(activePlanIndex + 1).padStart(2, '0')}</div>
+                  <div className="deployment-step__process"><b>{activePlanStep.name}</b><span>{activePlanStep.inputs.length ? `Butuh: ${activePlanStep.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {activePlanStep.output}</span></div>
+                  <div className="assignment-wizard-card__station"><small>Stasiun</small><b>{stationLabels[activePlanStep.station]}</b></div>
+                </div>
+
+                <div className="assignment-wizard-card__dropzone">
+                  <span>{activeAssignedPic ? `PIC: ${activeAssignedPic.name}` : 'Drop PIC di sini'}</span>
+                  <small>{activeAssignedPic ? `${activeAssignedPic.employeeNumber || 'Tanpa kode'} · Lapor: ${activeAssignedReportTo}` : `Hanya PIC dengan akses ${stationLabels[activePlanStep.station]} yang bisa dipakai.`}</small>
+                </div>
+
+                <div className="assignment-wizard-card__fields">
+                  <label><span>Tanggal rencana *</span><input type="date" value={activePlanStep.scheduledDate || scheduledDate} onChange={(event) => updatePlan(activePlanStep.id, { scheduledDate: event.target.value })} /></label>
+                  <label><span>Stasiun</span><select value={activePlanStep.station} onChange={(event) => updatePlan(activePlanStep.id, { station: event.target.value as Station })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                  <label><span className="field-label-with-help">PIC pelaksana *<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Hanya PIC yang punya akses ke stasiun ini yang bisa dipilih. Default lapor ke dan area kerja akan mengikuti pengaturan People & Station.</span></span></span><select value={activePlanStep.assignedUserId || ''} onChange={(event) => updatePlan(activePlanStep.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(activePlanStep.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
+                  <label><span>Lapor ke *</span><select value={activePlanStep.reportToUserId || ''} onChange={(event) => updatePlan(activePlanStep.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select>{activePlanStep.assignedUserId && !directory.find((member) => member.id === activePlanStep.assignedUserId)?.defaultReportToUserId ? <small className="field-hint field-hint--warning">PIC ini belum punya default lapor ke. Pilih manual atau atur di People & Station.</small> : null}</label>
+                  <label className="assignment-wizard-card__wide"><span>Area kerja / laporan hasil *</span><select value={activePlanStep.location || ''} onChange={(event) => updatePlan(activePlanStep.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
+                </div>
+
+                <footer className="assignment-wizard-card__actions">
+                  <button type="button" className="button button--secondary" disabled={activePlanIndex <= 0} onClick={() => { const previous = plannedSteps[Math.max(0, activePlanIndex - 1)]; if (previous) setActivePlanStepId(previous.id) }}>Sebelumnya</button>
+                  <button type="button" className="button button--primary" onClick={goToNextPlanStep}>{completedPlanCount === plannedSteps.length ? 'Semua proses lengkap' : 'Simpan & lanjut'}</button>
+                </footer>
+              </article> : null}
+            </section>
           </div>
         </div>
       </section>
