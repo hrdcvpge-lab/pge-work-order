@@ -4,6 +4,7 @@ import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
+import { AssignmentBoard } from './components/deploy/AssignmentBoard'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
 import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, resolveLivePendingRework, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
@@ -1634,23 +1635,10 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [picSearch, setPicSearch] = useState('')
-  const [picStationFilter, setPicStationFilter] = useState<Station | 'all'>('all')
   const [draggedPicId, setDraggedPicId] = useState('')
   const [dragOverStepId, setDragOverStepId] = useState('')
   const [activePlanStepId, setActivePlanStepId] = useState(workOrder.steps[0]?.id || '')
   const artworkReadiness = getArtworkReadiness(workOrder)
-  const availablePicCards = useMemo(() => {
-    const normalizedSearch = picSearch.trim().toLowerCase()
-    return getCombinedDirectory(directory, team)
-      .filter((member) => member.kind === 'staff' && member.isActive !== false && Boolean(member.allowedStations?.length))
-      .filter((member) => picStationFilter === 'all' || Boolean(member.allowedStations?.includes(picStationFilter)))
-      .filter((member) => {
-        if (!normalizedSearch) return true
-        return [member.name, member.employeeNumber || '', member.allowedStations?.map((station) => stationLabels[station]).join(' ') || ''].join(' ').toLowerCase().includes(normalizedSearch)
-      })
-      .sort((first, second) => first.name.localeCompare(second.name))
-  }, [directory, team, picSearch, picStationFilter])
-
   const isPlanStepComplete = (step: ProcessStep) => Boolean(step.assignedUserId && step.reportToUserId && step.location && step.scheduledDate)
   const completedPlanCount = plannedSteps.filter(isPlanStepComplete).length
   const allPlansComplete = plannedSteps.length > 0 && completedPlanCount === plannedSteps.length
@@ -1662,6 +1650,17 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
   const activeDraggedPic = directory.find((member) => member.id === draggedPicId)
   const isActiveDragOver = Boolean(activePlanStep && dragOverStepId === activePlanStep.id)
   const isActiveInvalidDrop = Boolean(isActiveDragOver && activePlanStep && activeDraggedPic && !activeDraggedPic.allowedStations?.includes(activePlanStep.station))
+  const availablePicCards = useMemo(() => {
+    const normalizedSearch = picSearch.trim().toLowerCase()
+    return getCombinedDirectory(directory, team)
+      .filter((member) => member.kind === 'staff' && member.isActive !== false && Boolean(member.allowedStations?.length))
+      .filter((member) => !activePlanStep || Boolean(member.allowedStations?.includes(activePlanStep.station)))
+      .filter((member) => {
+        if (!normalizedSearch) return true
+        return [member.name, member.employeeNumber || '', member.allowedStations?.map((station) => stationLabels[station]).join(' ') || ''].join(' ').toLowerCase().includes(normalizedSearch)
+      })
+      .sort((first, second) => first.name.localeCompare(second.name))
+  }, [directory, team, picSearch, activePlanStep?.station])
 
   useEffect(() => {
     if (!plannedSteps.length) return
@@ -1685,41 +1684,43 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
     setError('')
   }
 
+  const applyPlanPatchToSteps = (steps: ProcessStep[], stepId: string, patch: Partial<ProcessStep>) => steps.map((step) => {
+    if (step.id !== stepId) return step
+
+    const nextStation = patch.station || step.station
+    const nextAssignedUserId = patch.assignedUserId !== undefined ? patch.assignedUserId : step.assignedUserId
+    const selectedAssignee = directory.find((member) => member.id === nextAssignedUserId)
+    const selectedAssigneeCanWorkStation = Boolean(selectedAssignee?.allowedStations?.includes(nextStation))
+    const assigneeChanged = patch.assignedUserId !== undefined && patch.assignedUserId !== step.assignedUserId
+    const stationChanged = patch.station !== undefined && patch.station !== step.station
+    const shouldClearAssignee = Boolean(stationChanged && nextAssignedUserId && !selectedAssigneeCanWorkStation)
+    const finalAssignedUserId = shouldClearAssignee ? '' : nextAssignedUserId
+    const autoReportToUserId = finalAssignedUserId ? getDefaultReportToForAssignee(finalAssignedUserId, directory, team) : ''
+    const autoLocation = finalAssignedUserId ? getDefaultAreaForAssignee(finalAssignedUserId, nextStation, directory) : defaultLocationForStation(nextStation)
+
+    return {
+      ...step,
+      ...patch,
+      station: nextStation,
+      assignedUserId: finalAssignedUserId,
+      reportToUserId: patch.reportToUserId !== undefined
+        ? patch.reportToUserId
+        : assigneeChanged || shouldClearAssignee
+          ? autoReportToUserId
+          : step.reportToUserId || autoReportToUserId,
+      location: patch.location !== undefined
+        ? patch.location
+        : assigneeChanged || stationChanged || shouldClearAssignee
+          ? autoLocation
+          : step.location || autoLocation,
+    }
+  })
+
   const updatePlan = (stepId: string, patch: Partial<ProcessStep>) => {
-    setPlannedSteps((current) => current.map((step) => {
-      if (step.id !== stepId) return step
-
-      const nextStation = patch.station || step.station
-      const nextAssignedUserId = patch.assignedUserId !== undefined ? patch.assignedUserId : step.assignedUserId
-      const selectedAssignee = directory.find((member) => member.id === nextAssignedUserId)
-      const selectedAssigneeCanWorkStation = Boolean(selectedAssignee?.allowedStations?.includes(nextStation))
-      const assigneeChanged = patch.assignedUserId !== undefined && patch.assignedUserId !== step.assignedUserId
-      const stationChanged = patch.station !== undefined && patch.station !== step.station
-      const shouldClearAssignee = stationChanged && nextAssignedUserId && !selectedAssigneeCanWorkStation
-      const finalAssignedUserId = shouldClearAssignee ? '' : nextAssignedUserId
-      const autoReportToUserId = finalAssignedUserId ? getDefaultReportToForAssignee(finalAssignedUserId, directory, team) : ''
-      const autoLocation = finalAssignedUserId ? getDefaultAreaForAssignee(finalAssignedUserId, nextStation, directory) : defaultLocationForStation(nextStation)
-
-      return {
-        ...step,
-        ...patch,
-        station: nextStation,
-        assignedUserId: finalAssignedUserId,
-        reportToUserId: patch.reportToUserId !== undefined
-          ? patch.reportToUserId
-          : assigneeChanged || shouldClearAssignee
-            ? autoReportToUserId
-            : step.reportToUserId || autoReportToUserId,
-        location: patch.location !== undefined
-          ? patch.location
-          : assigneeChanged || stationChanged || shouldClearAssignee
-            ? autoLocation
-            : step.location || autoLocation,
-      }
-    }))
+    setPlannedSteps((current) => applyPlanPatchToSteps(current, stepId, patch))
   }
 
-  const assignPicToStep = (step: ProcessStep, picId: string) => {
+  const assignPicToStep = (step: ProcessStep, picId: string, options?: { autoAdvance?: boolean }) => {
     const selectedPic = directory.find((member) => member.id === picId)
     if (!selectedPic) return
 
@@ -1728,8 +1729,17 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
       return
     }
 
+    const updatedSteps = applyPlanPatchToSteps(plannedSteps, step.id, { assignedUserId: selectedPic.id })
+    const updatedStep = updatedSteps.find((candidate) => candidate.id === step.id)
     setError('')
-    updatePlan(step.id, { assignedUserId: selectedPic.id })
+    setPlannedSteps(updatedSteps)
+
+    if (options?.autoAdvance && updatedStep && isPlanStepComplete(updatedStep)) {
+      const nextIncomplete = updatedSteps.find((candidate, index) => index > activePlanIndex && !isPlanStepComplete(candidate)) || updatedSteps.find((candidate) => !isPlanStepComplete(candidate))
+      if (nextIncomplete && nextIncomplete.id !== step.id) {
+        setActivePlanStepId(nextIncomplete.id)
+      }
+    }
   }
 
   const deploy = async () => {
@@ -1762,97 +1772,33 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
         <div className="deployment-plan__section-head"><div><p className="eyebrow">Penugasan sebelum deploy</p><h3>Rute, PIC, pelaporan, dan area</h3><span>Assignment dibuat satu proses aktif pada satu waktu agar tidak menumpuk. Dropdown tetap tersedia sebagai fallback.</span></div><b>{completedPlanCount}/{plannedSteps.length} lengkap</b></div>
         <div className="deployment-plan__legend"><span><i className="legend-dot legend-dot--required" /> Wajib sebelum deploy</span><span><i className="legend-dot legend-dot--station" /> Warna mengikuti stasiun proses</span><span><i className="legend-dot legend-dot--station" /> Drag PIC ke proses aktif</span></div>
 
-        <div className="assignment-board-shell">
-          <aside className="assignment-board-shell__pic-rail">
-            <section className="pic-assignment-board pic-assignment-board--rail" aria-label="Drag and drop PIC ke proses aktif">
-              <header className="pic-assignment-board__header">
-                <div>
-                  <b>PIC tersedia</b>
-                  <span>Tarik ke proses aktif di kanan. Lapor ke dan area mengikuti People & Station.</span>
-                </div>
-                <div className="pic-assignment-board__filters">
-                  <input value={picSearch} onChange={(event) => setPicSearch(event.target.value)} placeholder="Cari PIC / kode" />
-                  <select value={picStationFilter} onChange={(event) => setPicStationFilter(event.target.value as Station | 'all')}>
-                    <option value="all">Semua stasiun</option>
-                    {Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-                  </select>
-                </div>
-              </header>
-              <div className="pic-assignment-board__list">
-                {availablePicCards.length ? availablePicCards.map((member) => {
-                  const primaryStation = picStationFilter !== 'all' && member.allowedStations?.includes(picStationFilter) ? picStationFilter : member.allowedStations?.[0]
-                  const accessLabel = member.accessMode === 'self_service' ? 'Login mandiri' : member.accessMode === 'admin_assisted' ? 'Bantu admin' : 'Tanpa login'
-                  const tone = getStablePicTone(member.id)
-                  return <article className={`pic-drag-card pic-drag-card--tone-${tone} pic-drag-card--station-${primaryStation || 'none'}${draggedPicId === member.id ? ' is-dragging' : ''}`} key={member.id} draggable onDragStart={(event) => { setDraggedPicId(member.id); event.dataTransfer.setData('text/plain', member.id); event.dataTransfer.effectAllowed = 'copy' }} onDragEnd={() => { setDraggedPicId(''); setDragOverStepId('') }}>
-                    <span className="pic-drag-card__marker" aria-hidden="true" />
-                    <div className="pic-drag-card__main"><b>{member.name}</b><span>{member.employeeNumber || 'Tanpa kode'} · {accessLabel}</span></div>
-                    <div className="pic-drag-card__meta">{member.defaultReportToUserId ? <small>Lapor: {getDirectoryName(member.defaultReportToUserId, directory, '—')}</small> : <small>Belum ada lapor ke</small>}</div>
-                    <div className="pic-drag-card__stations">{(member.allowedStations || []).map((station) => <small className={`station-chip station-chip--${station}`} key={station}>{stationLabels[station]}</small>)}</div>
-                  </article>
-                }) : <div className="pic-assignment-board__empty">Tidak ada PIC aktif sesuai filter. Atur akses personel di People & Station.</div>}
-              </div>
-            </section>
-          </aside>
-
-          <main className="assignment-board-shell__main">
-            <section className="assignment-board-main">
-              <header className="assignment-board-main__header">
-                <div>
-                  <p className="eyebrow">Proses aktif untuk diisi</p>
-                  <h4>{activePlanStep ? `P${String(activePlanIndex + 1).padStart(2, '0')} · ${activePlanStep.name}` : 'Tidak ada proses'}</h4>
-                  <span>Isi proses paling awal yang perlu penugasan. Proses lengkap otomatis menjadi ringkasan.</span>
-                </div>
-                <div className="assignment-wizard__progress"><span style={{ width: `${plannedSteps.length ? Math.round((completedPlanCount / plannedSteps.length) * 100) : 0}%` }} /></div>
-              </header>
-
-              {activePlanStep ? <article className={`assignment-active-card deployment-step--station-${activePlanStep.station}${isActiveDragOver ? ' deployment-step--drag-over' : ''}${isActiveInvalidDrop ? ' deployment-step--drag-invalid' : ''}`} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOverStepId(activePlanStep.id) }} onDragLeave={() => setDragOverStepId('')} onDrop={(event) => { event.preventDefault(); const picId = event.dataTransfer.getData('text/plain') || draggedPicId; setDragOverStepId(''); assignPicToStep(activePlanStep, picId) }}>
-                <div className="assignment-active-card__summary">
-                  <span className="deployment-step__sequence">P{String(activePlanIndex + 1).padStart(2, '0')}</span>
-                  <div>
-                    <b>{activePlanStep.name}</b>
-                    <small>{stationLabels[activePlanStep.station]} · {activePlanStep.inputs.length ? `Butuh: ${activePlanStep.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {activePlanStep.output}</small>
-                  </div>
-                  <span className="assignment-active-card__status">{isPlanStepComplete(activePlanStep) ? '✓ Lengkap' : 'Perlu PIC'}</span>
-                </div>
-
-                <div className="assignment-active-card__dropzone">
-                  <span>{activeAssignedPic ? activeAssignedPic.name : 'Drop PIC di sini'}</span>
-                  <small>{activeAssignedPic ? `${activeAssignedPic.employeeNumber || 'Tanpa kode'} · Lapor: ${activeAssignedReportTo}` : `Hanya PIC dengan akses ${stationLabels[activePlanStep.station]} yang bisa dipakai.`}</small>
-                </div>
-
-                <div className="assignment-active-card__fields">
-                  <label><span>Tanggal rencana *</span><input type="date" value={activePlanStep.scheduledDate || scheduledDate} onChange={(event) => updatePlan(activePlanStep.id, { scheduledDate: event.target.value })} /></label>
-                  <label><span>Stasiun</span><select value={activePlanStep.station} onChange={(event) => updatePlan(activePlanStep.id, { station: event.target.value as Station })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                  <label><span className="field-label-with-help">PIC pelaksana *<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Hanya PIC yang punya akses ke stasiun ini yang bisa dipilih. Default lapor ke dan area kerja akan mengikuti pengaturan People & Station.</span></span></span><select value={activePlanStep.assignedUserId || ''} onChange={(event) => updatePlan(activePlanStep.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(activePlanStep.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
-                  <label><span>Lapor ke *</span><select value={activePlanStep.reportToUserId || ''} onChange={(event) => updatePlan(activePlanStep.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select>{activePlanStep.assignedUserId && !directory.find((member) => member.id === activePlanStep.assignedUserId)?.defaultReportToUserId ? <small className="field-hint field-hint--warning">PIC ini belum punya default lapor ke. Pilih manual atau atur di People & Station.</small> : null}</label>
-                  <label className="assignment-active-card__wide"><span>Area kerja / laporan hasil *</span><select value={activePlanStep.location || ''} onChange={(event) => updatePlan(activePlanStep.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
-                </div>
-
-                <footer className="assignment-active-card__actions">
-                  {activePlanIndex > 0 ? <button type="button" className="button button--secondary button--compact" onClick={() => { const previous = plannedSteps[Math.max(0, activePlanIndex - 1)]; if (previous) setActivePlanStepId(previous.id) }}>Sebelumnya</button> : <span />}
-                  {!allPlansComplete ? <button type="button" className="button button--primary" onClick={goToNextPlanStep}>Simpan & lanjut</button> : <span className="assignment-wizard-card__ready"><Icon name="check" /> Semua proses lengkap. Lanjut deploy WO.</span>}
-                </footer>
-              </article> : null}
-
-              <section className="assignment-step-tracker" aria-label="Ringkasan proses yang akan dideploy">
-                <div className="assignment-step-tracker__title"><b>Ringkasan rute</b><span>{completedPlanCount}/{plannedSteps.length} proses siap deploy</span></div>
-                <div className="assignment-step-tracker__list">
-                  {plannedSteps.map((step, index) => {
-                    const assignedPic = directory.find((member) => member.id === step.assignedUserId)
-                    const assignedReportTo = getDirectoryName(step.reportToUserId, directory, 'Lapor ke belum dipilih')
-                    const complete = isPlanStepComplete(step)
-                    const active = activePlanStep?.id === step.id
-                    return <button type="button" className={`assignment-tracker-row${active ? ' assignment-tracker-row--active' : ''}${complete ? ' assignment-tracker-row--complete' : ''}`} key={step.id} onClick={() => { setError(''); setActivePlanStepId(step.id) }}>
-                      <span className="assignment-tracker-row__seq">P{String(index + 1).padStart(2, '0')}</span>
-                      <span className="assignment-tracker-row__body"><b>{step.name}</b><small>{stationLabels[step.station]}{assignedPic ? ` · ${assignedPic.name} → ${assignedReportTo}` : ' · belum ada PIC'}</small></span>
-                      <span className="assignment-tracker-row__status">{complete ? '✓ Lengkap' : active ? 'Isi sekarang' : 'Belum lengkap'}</span>
-                    </button>
-                  })}
-                </div>
-              </section>
-            </section>
-          </main>
-        </div>
+        <AssignmentBoard
+          plannedSteps={plannedSteps}
+          activePlanStep={activePlanStep}
+          activePlanIndex={activePlanIndex}
+          completedPlanCount={completedPlanCount}
+          allPlansComplete={allPlansComplete}
+          directory={directory}
+          team={team}
+          workAreas={workAreas}
+          availablePicCards={availablePicCards}
+          picSearch={picSearch}
+          setPicSearch={setPicSearch}
+          draggedPicId={draggedPicId}
+          setDraggedPicId={setDraggedPicId}
+          dragOverStepId={dragOverStepId}
+          setDragOverStepId={setDragOverStepId}
+          setError={setError}
+          setActivePlanStepId={setActivePlanStepId}
+          isPlanStepComplete={isPlanStepComplete}
+          updatePlan={updatePlan}
+          assignPicToStep={assignPicToStep}
+          goToNextPlanStep={goToNextPlanStep}
+          getDirectoryName={getDirectoryName}
+          getEligibleAssignees={getEligibleAssignees}
+          getEscalationReceivers={getEscalationReceivers}
+          getStablePicTone={getStablePicTone}
+        />
       </section>
       {error ? <div className="callout callout--danger"><Icon name="warning" /><span>{error}</span></div> : null}
       {allPlansComplete ? <footer className="modal-card__footer deployment-plan__deploy-footer"><span className="deployment-plan__deploy-note"><Icon name="check" /> Semua proses sudah punya PIC, lapor ke, area, dan tanggal rencana.</span><button type="submit" className="button button--primary" disabled={isSubmitting}><Icon name="play" /> {isSubmitting ? 'Deploying...' : 'Deploy WO'}</button></footer> : null}
