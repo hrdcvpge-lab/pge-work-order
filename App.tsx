@@ -4,6 +4,7 @@ import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
+import { AssignmentBoard } from './components/deploy/AssignmentBoard'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
 import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, resolveLivePendingRework, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
@@ -1606,6 +1607,16 @@ function getDefaultAreaForAssignee(assigneeId: string | undefined, station: Stat
   return assignee?.defaultWorkArea || defaultLocationForStation(station)
 }
 
+function getStablePicTone(value: string | undefined) {
+  const tones = ['maroon', 'orange', 'blue', 'green', 'purple', 'cyan', 'rose', 'slate'] as const
+  const source = value || 'default'
+  let hash = 0
+  for (let index = 0; index < source.length; index += 1) {
+    hash = (hash * 31 + source.charCodeAt(index)) % tones.length
+  }
+  return tones[Math.abs(hash) % tones.length]
+}
+
 function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, onSave }: {
   workOrder: WorkOrder
   staffDirectory: StaffDirectoryMember[]
@@ -1748,92 +1759,39 @@ function ScheduleModal({ workOrder, staffDirectory: directory, team, onClose, on
       <div className="form-grid form-grid--schedule-date">
         <label><span>Tanggal jadwal</span><input type="date" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} /></label>
       </div>
-      <section className="deployment-plan__section">
-        <div><p className="eyebrow">Penugasan sebelum deploy</p><h3>Rute, PIC, pelaporan, dan area</h3><span>Semua pilihan menggunakan dropdown agar WO tetap konsisten dan mudah dibaca operator.</span></div>
-        <div className="deployment-plan__legend"><span><i className="legend-dot legend-dot--required" /> Wajib sebelum deploy</span><span><i className="legend-dot legend-dot--station" /> Warna mengikuti stasiun proses</span><span><i className="legend-dot legend-dot--station" /> Drag PIC ke kartu proses, dropdown tetap tersedia</span></div>
-        <div className="deployment-wizard-layout">
-          <aside className="deployment-wizard-layout__pic-panel">
-            <section className="pic-assignment-board" aria-label="Drag and drop PIC ke proses">
-              <header className="pic-assignment-board__header">
-                <div>
-                  <b>PIC tersedia</b>
-                  <span>Tarik ke proses aktif. Dropdown tetap tersedia untuk input manual.</span>
-                </div>
-                <div className="pic-assignment-board__filters">
-                  <input value={picSearch} onChange={(event) => setPicSearch(event.target.value)} placeholder="Cari PIC / kode" />
-                  <select value={picStationFilter} onChange={(event) => setPicStationFilter(event.target.value as Station | 'all')}>
-                    <option value="all">Semua stasiun</option>
-                    {Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-                  </select>
-                </div>
-              </header>
-              <div className="pic-assignment-board__list">
-                {availablePicCards.length ? availablePicCards.map((member) => {
-                  const primaryStation = picStationFilter !== 'all' && member.allowedStations?.includes(picStationFilter) ? picStationFilter : member.allowedStations?.[0]
-                  const accessLabel = member.accessMode === 'self_service' ? 'Login mandiri' : member.accessMode === 'admin_assisted' ? 'Bantu admin' : 'Tanpa login'
-                  return <article className={`pic-drag-card pic-drag-card--station-${primaryStation || 'none'}${draggedPicId === member.id ? ' is-dragging' : ''}`} key={member.id} draggable onDragStart={(event) => { setDraggedPicId(member.id); event.dataTransfer.setData('text/plain', member.id); event.dataTransfer.effectAllowed = 'copy' }} onDragEnd={() => { setDraggedPicId(''); setDragOverStepId('') }}>
-                    <div className="pic-drag-card__main"><b>{member.name}</b><span>{member.employeeNumber || 'Tanpa kode'} · {accessLabel}</span></div>
-                    <div className="pic-drag-card__meta">{member.defaultReportToUserId ? <small>Lapor: {getDirectoryName(member.defaultReportToUserId, directory, '—')}</small> : <small>Belum ada lapor ke</small>}</div>
-                    <div className="pic-drag-card__stations">{(member.allowedStations || []).map((station) => <small className={`station-chip station-chip--${station}`} key={station}>{stationLabels[station]}</small>)}</div>
-                  </article>
-                }) : <div className="pic-assignment-board__empty">Tidak ada PIC aktif sesuai filter. Atur akses personel di People & Station.</div>}
-              </div>
-            </section>
-          </aside>
+      <section className="deployment-plan__section deployment-plan__section--refactored">
+        <div className="deployment-plan__section-head"><div><p className="eyebrow">Penugasan sebelum deploy</p><h3>Rute, PIC, pelaporan, dan area</h3><span>Assignment dibuat satu proses aktif pada satu waktu agar tidak menumpuk. Dropdown tetap tersedia sebagai fallback.</span></div><b>{completedPlanCount}/{plannedSteps.length} lengkap</b></div>
+        <div className="deployment-plan__legend"><span><i className="legend-dot legend-dot--required" /> Wajib sebelum deploy</span><span><i className="legend-dot legend-dot--station" /> Warna mengikuti stasiun proses</span><span><i className="legend-dot legend-dot--station" /> Drag PIC ke proses aktif</span></div>
 
-          <div className="deployment-wizard-layout__main">
-            <section className="assignment-wizard">
-              <header className="assignment-wizard__header">
-                <div>
-                  <p className="eyebrow">Wizard penugasan</p>
-                  <h4>{completedPlanCount}/{plannedSteps.length} proses lengkap</h4>
-                  <span>Isi proses berurutan. Proses yang sudah lengkap otomatis menjadi ringkasan.</span>
-                </div>
-                <div className="assignment-wizard__progress"><span style={{ width: `${plannedSteps.length ? Math.round((completedPlanCount / plannedSteps.length) * 100) : 0}%` }} /></div>
-              </header>
-
-              <div className="assignment-wizard__summary-list">
-                {plannedSteps.map((step, index) => {
-                  const assignedPic = directory.find((member) => member.id === step.assignedUserId)
-                  const assignedReportTo = getDirectoryName(step.reportToUserId, directory, 'Lapor ke belum dipilih')
-                  const complete = isPlanStepComplete(step)
-                  const active = activePlanStep?.id === step.id
-                  return <button type="button" className={`assignment-wizard-summary${active ? ' assignment-wizard-summary--active' : ''}${complete ? ' assignment-wizard-summary--complete' : ''}`} key={step.id} onClick={() => { setError(''); setActivePlanStepId(step.id) }}>
-                    <span className="assignment-wizard-summary__seq">P{String(index + 1).padStart(2, '0')}</span>
-                    <span className="assignment-wizard-summary__main"><b>{step.name}</b><small>{stationLabels[step.station]}{assignedPic ? ` · ${assignedPic.name} → ${assignedReportTo}` : ' · belum ada PIC'}</small></span>
-                    <span className={`assignment-wizard-summary__status${complete ? ' is-complete' : ''}`}>{complete ? '✓ Lengkap' : active ? 'Isi sekarang' : 'Belum lengkap'}</span>
-                  </button>
-                })}
-              </div>
-
-              {activePlanStep ? <article className={`assignment-wizard-card deployment-step--station-${activePlanStep.station}${isActiveDragOver ? ' deployment-step--drag-over' : ''}${isActiveInvalidDrop ? ' deployment-step--drag-invalid' : ''}`} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOverStepId(activePlanStep.id) }} onDragLeave={() => setDragOverStepId('')} onDrop={(event) => { event.preventDefault(); const picId = event.dataTransfer.getData('text/plain') || draggedPicId; setDragOverStepId(''); assignPicToStep(activePlanStep, picId) }}>
-                <div className="assignment-wizard-card__intro">
-                  <div className="deployment-step__sequence">P{String(activePlanIndex + 1).padStart(2, '0')}</div>
-                  <div className="deployment-step__process"><b>{activePlanStep.name}</b><span>{activePlanStep.inputs.length ? `Butuh: ${activePlanStep.inputs.join(' + ')}` : 'Mulai langsung'} · Hasil: {activePlanStep.output}</span></div>
-                  <div className="assignment-wizard-card__station"><small>Stasiun</small><b>{stationLabels[activePlanStep.station]}</b></div>
-                </div>
-
-                <div className="assignment-wizard-card__dropzone">
-                  <span>{activeAssignedPic ? `PIC: ${activeAssignedPic.name}` : 'Drop PIC di sini'}</span>
-                  <small>{activeAssignedPic ? `${activeAssignedPic.employeeNumber || 'Tanpa kode'} · Lapor: ${activeAssignedReportTo}` : `Hanya PIC dengan akses ${stationLabels[activePlanStep.station]} yang bisa dipakai.`}</small>
-                </div>
-
-                <div className="assignment-wizard-card__fields">
-                  <label><span>Tanggal rencana *</span><input type="date" value={activePlanStep.scheduledDate || scheduledDate} onChange={(event) => updatePlan(activePlanStep.id, { scheduledDate: event.target.value })} /></label>
-                  <label><span>Stasiun</span><select value={activePlanStep.station} onChange={(event) => updatePlan(activePlanStep.id, { station: event.target.value as Station })}>{Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                  <label><span className="field-label-with-help">PIC pelaksana *<span className="field-help" tabIndex={0} aria-label="Bantuan PIC">?<span className="field-help__tooltip">Hanya PIC yang punya akses ke stasiun ini yang bisa dipilih. Default lapor ke dan area kerja akan mengikuti pengaturan People & Station.</span></span></span><select value={activePlanStep.assignedUserId || ''} onChange={(event) => updatePlan(activePlanStep.id, { assignedUserId: event.target.value })}><option value="">Pilih PIC sesuai stasiun</option>{getEligibleAssignees(activePlanStep.station, directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}{member.employeeNumber ? ` · ${member.employeeNumber}` : ''}</option>)}</select></label>
-                  <label><span>Lapor ke *</span><select value={activePlanStep.reportToUserId || ''} onChange={(event) => updatePlan(activePlanStep.id, { reportToUserId: event.target.value })}><option value="">Pilih penerima laporan</option>{getEscalationReceivers(directory, team).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select>{activePlanStep.assignedUserId && !directory.find((member) => member.id === activePlanStep.assignedUserId)?.defaultReportToUserId ? <small className="field-hint field-hint--warning">PIC ini belum punya default lapor ke. Pilih manual atau atur di People & Station.</small> : null}</label>
-                  <label className="assignment-wizard-card__wide"><span>Area kerja / laporan hasil *</span><select value={activePlanStep.location || ''} onChange={(event) => updatePlan(activePlanStep.id, { location: event.target.value })}><option value="">Pilih area</option>{workAreas.map((area) => <option value={area} key={area}>{area}</option>)}</select></label>
-                </div>
-
-                <footer className="assignment-wizard-card__actions">
-                  {activePlanIndex > 0 ? <button type="button" className="button button--secondary button--compact" onClick={() => { const previous = plannedSteps[Math.max(0, activePlanIndex - 1)]; if (previous) setActivePlanStepId(previous.id) }}>Sebelumnya</button> : <span />}
-                  {!allPlansComplete ? <button type="button" className="button button--primary" onClick={goToNextPlanStep}>Simpan & lanjut</button> : <span className="assignment-wizard-card__ready"><Icon name="check" /> Semua proses lengkap. Lanjut deploy WO.</span>}
-                </footer>
-              </article> : null}
-            </section>
-          </div>
-        </div>
+        <AssignmentBoard
+          plannedSteps={plannedSteps}
+          activePlanStep={activePlanStep}
+          activePlanIndex={activePlanIndex}
+          completedPlanCount={completedPlanCount}
+          allPlansComplete={allPlansComplete}
+          directory={directory}
+          team={team}
+          workAreas={workAreas}
+          availablePicCards={availablePicCards}
+          picSearch={picSearch}
+          setPicSearch={setPicSearch}
+          picStationFilter={picStationFilter}
+          setPicStationFilter={setPicStationFilter}
+          draggedPicId={draggedPicId}
+          setDraggedPicId={setDraggedPicId}
+          dragOverStepId={dragOverStepId}
+          setDragOverStepId={setDragOverStepId}
+          setError={setError}
+          setActivePlanStepId={setActivePlanStepId}
+          isPlanStepComplete={isPlanStepComplete}
+          updatePlan={updatePlan}
+          assignPicToStep={assignPicToStep}
+          goToNextPlanStep={goToNextPlanStep}
+          getDirectoryName={getDirectoryName}
+          getEligibleAssignees={getEligibleAssignees}
+          getEscalationReceivers={getEscalationReceivers}
+          getStablePicTone={getStablePicTone}
+        />
       </section>
       {error ? <div className="callout callout--danger"><Icon name="warning" /><span>{error}</span></div> : null}
       {allPlansComplete ? <footer className="modal-card__footer deployment-plan__deploy-footer"><span className="deployment-plan__deploy-note"><Icon name="check" /> Semua proses sudah punya PIC, lapor ke, area, dan tanggal rencana.</span><button type="submit" className="button button--primary" disabled={isSubmitting}><Icon name="play" /> {isSubmitting ? 'Deploying...' : 'Deploy WO'}</button></footer> : null}
