@@ -15,8 +15,6 @@ type AssignmentBoardProps = {
   availablePicCards: StaffDirectoryMember[]
   picSearch: string
   setPicSearch: Dispatch<SetStateAction<string>>
-  picStationFilter: Station | 'all'
-  setPicStationFilter: Dispatch<SetStateAction<Station | 'all'>>
   draggedPicId: string
   setDraggedPicId: Dispatch<SetStateAction<string>>
   dragOverStepId: string
@@ -25,7 +23,7 @@ type AssignmentBoardProps = {
   setActivePlanStepId: Dispatch<SetStateAction<string>>
   isPlanStepComplete: (step: ProcessStep) => boolean
   updatePlan: (stepId: string, patch: Partial<ProcessStep>) => void
-  assignPicToStep: (step: ProcessStep, picId: string) => void
+  assignPicToStep: (step: ProcessStep, picId: string, options?: { autoAdvance?: boolean }) => void
   goToNextPlanStep: () => void
   getDirectoryName: (id: string | undefined, directory?: StaffDirectoryMember[], fallback?: string) => string
   getEligibleAssignees: (station: Station, directory: StaffDirectoryMember[], team: TeamMember[]) => StaffDirectoryMember[]
@@ -45,8 +43,6 @@ export function AssignmentBoard({
   availablePicCards,
   picSearch,
   setPicSearch,
-  picStationFilter,
-  setPicStationFilter,
   draggedPicId,
   setDraggedPicId,
   dragOverStepId,
@@ -74,21 +70,17 @@ export function AssignmentBoard({
       <header className="assignment-board-v2__pic-head">
         <div>
           <p className="eyebrow">PIC tersedia</p>
-          <h4>Drag ke proses aktif</h4>
-          <span>Lapor ke dan area otomatis mengikuti People & Station.</span>
+          <h4>{activePlanStep ? `Untuk ${stationLabels[activePlanStep.station]}` : 'Semua proses lengkap'}</h4>
+          <span>{activePlanStep ? 'Hanya PIC yang punya akses ke proses aktif yang ditampilkan.' : 'Tidak ada proses yang perlu diisi.'}</span>
         </div>
         <div className="assignment-board-v2__filters">
           <input value={picSearch} onChange={(event) => setPicSearch(event.target.value)} placeholder="Cari PIC / kode" />
-          <select value={picStationFilter} onChange={(event) => setPicStationFilter(event.target.value as Station | 'all')}>
-            <option value="all">Semua stasiun</option>
-            {Object.entries(stationLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-          </select>
         </div>
       </header>
 
       <div className="assignment-board-v2__pic-list">
         {availablePicCards.length ? availablePicCards.map((member) => {
-          const primaryStation = picStationFilter !== 'all' && member.allowedStations?.includes(picStationFilter) ? picStationFilter : member.allowedStations?.[0]
+          const primaryStation = activePlanStep?.station || member.allowedStations?.[0]
           const accessLabel = member.accessMode === 'self_service' ? 'Login mandiri' : member.accessMode === 'admin_assisted' ? 'Bantu admin' : 'Tanpa login'
           const tone = getStablePicTone(member.id)
           return <article
@@ -110,7 +102,7 @@ export function AssignmentBoard({
               <div className="pic-list-row__stations">{(member.allowedStations || []).map((station) => <span className={`station-chip station-chip--${station}`} key={station}>{stationLabels[station]}</span>)}</div>
             </div>
           </article>
-        }) : <div className="assignment-board-v2__empty">Tidak ada PIC aktif sesuai filter. Atur akses personel di People & Station.</div>}
+        }) : <div className="assignment-board-v2__empty">{activePlanStep ? `Belum ada PIC aktif dengan akses ${stationLabels[activePlanStep.station]}. Atur akses personel di People & Station.` : 'Semua proses sudah lengkap.'}</div>}
       </div>
     </aside>
 
@@ -136,7 +128,7 @@ export function AssignmentBoard({
             event.preventDefault()
             const picId = event.dataTransfer.getData('text/plain') || draggedPicId
             setDragOverStepId('')
-            assignPicToStep(activePlanStep, picId)
+            assignPicToStep(activePlanStep, picId, { autoAdvance: true })
           }}
         >
           <div className="assignment-work-card__dropzone">
