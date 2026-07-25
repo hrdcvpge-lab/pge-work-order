@@ -480,6 +480,15 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     })
   }, [orderListTab, priorityFilter, search, scopedOrders, statusFilter])
 
+  const boardOrders = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase('id-ID')
+    return scopedOrders.filter((order) => {
+      const matchesSearch = !needle || `${order.code} ${order.product} ${order.source}`.toLocaleLowerCase('id-ID').includes(needle)
+      const matchesPriority = priorityFilter === 'all' || order.priority === priorityFilter
+      return !order.isArchived && matchesSearch && matchesPriority
+    })
+  }, [priorityFilter, search, scopedOrders])
+
   const readyTasks = useMemo(() => scopedOrders.flatMap((order) => order.steps
     .filter((step) => deriveStepStatus(order, step) === 'ready')
     .filter((step) => hasFullWorkOrderAccess(currentUser) || step.assignedUserId === currentUser.id)
@@ -851,9 +860,28 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
         {view === 'orders' ? (
           <section className="view-content">
-            <article className="surface-card">
-              <header className="surface-card__header"><div><p className="eyebrow">Daftar utama</p><h2>{hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2><span>{hasFullWorkOrderAccess(currentUser) ? 'Default menampilkan WO aktif. WO selesai dipindahkan ke tab Selesai atau Laporan.' : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span></div><Badge kind="plain" value={`${filteredOrders.length} WO`} /></header>
-              <div className="wo-list-tabs" role="tablist" aria-label="Filter daftar Work Order">
+            <article className={`surface-card ${orderViewMode === 'board' ? 'surface-card--orders-board' : ''}`}>
+              <header className="surface-card__header surface-card__header--orders">
+                <div>
+                  <p className="eyebrow">{orderViewMode === 'board' ? 'Papan produksi' : 'Daftar utama'}</p>
+                  <h2>{orderViewMode === 'board' ? 'Papan Kartu Antrian' : hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2>
+                  <span>{orderViewMode === 'board'
+                    ? hasFullWorkOrderAccess(currentUser)
+                      ? 'Drag kartu untuk koreksi status. Detail proses dan Close WO tetap lewat modal WO.'
+                      : 'Mode baca: buka kartu untuk melihat atau menyelesaikan proses yang ditugaskan.'
+                    : hasFullWorkOrderAccess(currentUser)
+                      ? 'Default menampilkan WO aktif. WO selesai dipindahkan ke tab Selesai atau Laporan.'
+                      : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span>
+                </div>
+                <div className="orders-header-actions">
+                  <div className="order-view-toggle" role="tablist" aria-label="Pilih tampilan Work Order">
+                    <button type="button" className={orderViewMode === 'board' ? 'is-active' : ''} onClick={() => setOrderViewMode('board')}>Papan</button>
+                    <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar</button>
+                  </div>
+                  <Badge kind="plain" value={`${orderViewMode === 'board' ? boardOrders.length : filteredOrders.length} WO`} />
+                </div>
+              </header>
+              {orderViewMode === 'list' ? <div className="wo-list-tabs" role="tablist" aria-label="Filter daftar Work Order">
                 {[
                   { id: 'active', label: 'Aktif' },
                   { id: 'draft', label: 'Draft' },
@@ -861,17 +889,13 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                   { id: 'done', label: 'Selesai' },
                   { id: 'all', label: 'Semua' },
                 ].map((item) => <button key={item.id} type="button" className={orderListTab === item.id ? 'is-active' : ''} onClick={() => setOrderListTab(item.id as typeof orderListTab)}>{item.label}</button>)}
-              </div>
-              <div className="filter-row filter-row--orders">
+              </div> : null}
+              <div className={`filter-row filter-row--orders ${orderViewMode === 'board' ? 'filter-row--board' : ''}`}>
                 <label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari kode WO, produk, atau sumber order" /></label>
-                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
+                {orderViewMode === 'list' ? <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select> : null}
                 <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)}><option value="all">Semua prioritas</option>{Object.entries(priorityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
-                <div className="order-view-toggle" role="tablist" aria-label="Pilih tampilan Work Order">
-                  <button type="button" className={orderViewMode === 'board' ? 'is-active' : ''} onClick={() => setOrderViewMode('board')}>Papan</button>
-                  <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar</button>
-                </div>
               </div>
-              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={filteredOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} onOpenAction={openKanbanAction} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
+              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={boardOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} onOpenAction={openKanbanAction} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
                   const activeStep = order.steps.find((step) => deriveStepStatus(order, step) === 'in_progress')
