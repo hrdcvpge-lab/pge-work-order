@@ -368,6 +368,23 @@ export async function scheduleLiveWorkOrder(input: ScheduleWorkOrderInput): Prom
   if (error) throw new Error(error.message)
 }
 
+
+export type MoveWorkOrderKanbanStatusInput = {
+  workOrderId: string
+  status: WorkOrderStatus
+}
+
+export async function moveLiveWorkOrderKanbanStatus(input: MoveWorkOrderKanbanStatusInput): Promise<void> {
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+
+  const { error } = await supabase.rpc('move_work_order_kanban_status', {
+    target_work_order_id: input.workOrderId,
+    target_status: input.status,
+  })
+
+  if (error) throw new Error(error.message)
+}
+
 export type StartWorkOrderStepInput = {
   stepId: string
 }
