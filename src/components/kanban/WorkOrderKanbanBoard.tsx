@@ -412,18 +412,11 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
 
   return (
     <section className="ka-board-shell" aria-label="Papan Work Order Kartu Antrian">
-      <header className="ka-board-shell__header">
-        <div>
-          <p className="eyebrow">Coba tampilan baru</p>
-          <h3>Papan Kartu Antrian</h3>
-          <span>{canMoveStatus ? 'Admin / PPIC / Manager dapat drag kartu untuk koreksi status. Close WO tetap lewat tombol Close WO.' : 'Mode baca: role produksi menyelesaikan proses lewat tiket masing-masing.'}</span>
-        </div>
-        <div className="ka-board-shell__legend" aria-label="Keterangan status kartu">
-          <span><i className="ka-legend-dot ka-legend-dot--p1" /> P1</span>
-          <span><i className="ka-legend-dot ka-legend-dot--hold" /> HOLD</span>
-          <span><i className="ka-legend-dot ka-legend-dot--late" /> Terlambat</span>
-        </div>
-      </header>
+      <div className="ka-board-shell__legend ka-board-shell__legend--compact" aria-label="Keterangan status kartu">
+        <span><i className="ka-legend-dot ka-legend-dot--p1" /> P1</span>
+        <span><i className="ka-legend-dot ka-legend-dot--hold" /> HOLD</span>
+        <span><i className="ka-legend-dot ka-legend-dot--late" /> Terlambat</span>
+      </div>
 
       {dropError ? <div className="ka-drop-error"><Icon name="warning" /> {dropError}</div> : null}
 
