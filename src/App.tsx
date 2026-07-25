@@ -5,6 +5,7 @@ import { Modal } from './components/Modal'
 import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { AssignmentBoard } from './components/deploy/AssignmentBoard'
+import { WorkOrderKanbanBoard } from './components/kanban/WorkOrderKanbanBoard'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
 import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, resolveLivePendingRework, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
@@ -371,6 +372,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   const [statusFilter, setStatusFilter] = useState<'all' | WorkOrder['status']>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all')
   const [orderListTab, setOrderListTab] = useState<'active' | 'draft' | 'running' | 'done' | 'all'>('active')
+  const [orderViewMode, setOrderViewMode] = useState<'board' | 'list'>(() => window.localStorage.getItem('pge-order-view-mode') === 'list' ? 'list' : 'board')
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
   const [isLoadingWorkOrders, setIsLoadingWorkOrders] = useState(true)
@@ -438,6 +440,10 @@ export default function App({ currentUser, onSignOut }: AppProps) {
       void reloadStaffDirectory()
     }
   }, [modal?.type, currentUser.id])
+
+  useEffect(() => {
+    window.localStorage.setItem('pge-order-view-mode', orderViewMode)
+  }, [orderViewMode])
 
   const reloadWorkOrders = async () => {
     const liveOrders = await fetchLiveWorkOrders()
@@ -779,12 +785,16 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                   { id: 'all', label: 'Semua' },
                 ].map((item) => <button key={item.id} type="button" className={orderListTab === item.id ? 'is-active' : ''} onClick={() => setOrderListTab(item.id as typeof orderListTab)}>{item.label}</button>)}
               </div>
-              <div className="filter-row">
+              <div className="filter-row filter-row--orders">
                 <label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari kode WO, produk, atau sumber order" /></label>
                 <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
                 <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)}><option value="all">Semua prioritas</option>{Object.entries(priorityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
+                <div className="order-view-toggle" role="tablist" aria-label="Pilih tampilan Work Order">
+                  <button type="button" className={orderViewMode === 'board' ? 'is-active' : ''} onClick={() => setOrderViewMode('board')}>Papan</button>
+                  <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar</button>
+                </div>
               </div>
-              <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
+              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={filteredOrders} currentUser={currentUser} staffDirectory={staffDirectory} onOpenOrder={openOrder} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
                   const activeStep = order.steps.find((step) => deriveStepStatus(order, step) === 'in_progress')
@@ -811,7 +821,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                     <td><div className="row-actions">{['admin', 'ppic'].includes(currentUser.role) && status === 'draft' ? <button className="row-schedule" onClick={(event) => { event.stopPropagation(); setModal({ type: 'schedule', workOrder: order }) }}>Rencanakan</button> : null}<button className="row-open" onClick={(event) => { event.stopPropagation(); openOrder(order) }}>Buka <Icon name="arrow" /></button></div></td>
                   </tr>
                 })}
-              </tbody></table></div>
+              </tbody></table></div>}
             </article>
           </section>
         ) : null}
