@@ -116,14 +116,26 @@ export function getWorkOrderCurrentAction(workOrder: WorkOrder, role: Role): Wor
     }
   }
 
-  if (status === 'done' || isWorkOrderFulfilled(workOrder)) {
+  if (status === 'done') {
     return {
       kind: canCloseOrder(role) ? 'close_order' : 'open_detail',
       label: canCloseOrder(role) ? 'Close WO' : 'Lihat hasil',
       title: 'WO selesai diproses',
-      note: canCloseOrder(role) ? 'Hasil produksi terpenuhi. WO siap ditutup PPIC.' : 'Hasil produksi terpenuhi dan menunggu close PPIC.',
+      note: canCloseOrder(role) ? 'Status WO sudah Selesai. WO siap ditutup PPIC.' : 'WO selesai dan menunggu close PPIC.',
       severity: 'success',
       opensModal: canCloseOrder(role),
+      requiresModalBeforeStatusMove: false,
+    }
+  }
+
+  if (isWorkOrderFulfilled(workOrder)) {
+    return {
+      kind: 'open_detail',
+      label: 'Review WO',
+      title: 'Output terpenuhi, status belum Selesai',
+      note: 'Output produksi sudah terpenuhi, tetapi status WO belum done. Buka detail untuk mengecek proses akhir sebelum close.',
+      severity: 'neutral',
+      opensModal: false,
       requiresModalBeforeStatusMove: false,
     }
   }
