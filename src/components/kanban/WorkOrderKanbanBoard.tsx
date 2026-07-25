@@ -19,7 +19,6 @@ import { CSS as DndCSS } from '@dnd-kit/utilities'
 import type { StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderStatus } from '../../types/workOrder'
 import { getWorkOrderCurrentAction, shouldOpenModalBeforeKanbanMove, type WorkOrderCurrentAction } from '../../utils/workOrderActions'
 import {
-  deriveOrderStatus,
   deriveStepStatus,
   formatDate,
   formatNumber,
@@ -120,7 +119,7 @@ type DocketContentProps = {
 }
 
 function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, dragHandle, onOpenAction }: DocketContentProps) {
-  const status = deriveOrderStatus(workOrder)
+  const status = workOrder.status
   const currentStep = getCurrentProcess(workOrder)
   const currentStepStatus = currentStep ? deriveStepStatus(workOrder, currentStep) : undefined
   const progress = getProgress(workOrder)
@@ -219,7 +218,7 @@ type DraggableDocketProps = {
 }
 
 function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus, isMoving, isStamped, onOpenOrder, onOpenAction }: DraggableDocketProps) {
-  const status = deriveOrderStatus(workOrder)
+  const status = workOrder.status
   const dragEnabled = canMoveStatus && status !== 'closed' && !isMoving
   const blocker = getCardBlocker(workOrder)
   const overdue = isOverdue(workOrder)
@@ -335,12 +334,12 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
   )
 
   const grouped = useMemo(() => KANBAN_COLUMNS.map((column) => {
-    const orders = workOrders.filter((order) => deriveOrderStatus(order) === column.id)
+    const orders = workOrders.filter((order) => order.status === column.id)
     const plannedQty = orders.reduce((sum, order) => sum + order.qty, 0)
     return { ...column, orders, plannedQty }
   }), [workOrders])
 
-  const cancelledOrders = useMemo(() => workOrders.filter((order) => deriveOrderStatus(order) === 'cancelled'), [workOrders])
+  const cancelledOrders = useMemo(() => workOrders.filter((order) => order.status === 'cancelled'), [workOrders])
   const activeOrder = activeOrderId ? workOrders.find((order) => order.id === activeOrderId) : undefined
 
   const rejectDrop = (message: string, targetStatus: WorkOrderStatus) => {
@@ -353,7 +352,7 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
   }
 
   const moveOrder = async (draggedOrder: WorkOrder, targetStatus: WorkOrderStatus) => {
-    const sourceStatus = deriveOrderStatus(draggedOrder)
+    const sourceStatus = draggedOrder.status
     if (sourceStatus === targetStatus) return
 
     if (!canMoveStatus) {
