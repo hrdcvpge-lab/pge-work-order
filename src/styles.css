@@ -6638,3 +6638,82 @@ body {
     animation: none;
   }
 }
+
+/* v0.6.3 — @dnd-kit kanban drag hardening */
+.ka-docket__drag-handle {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 5;
+  min-height: 30px;
+  border: 1px solid rgba(135, 23, 25, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 248, 237, 0.92);
+  color: var(--ka-burgundy);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: grab;
+  box-shadow: 0 8px 18px rgba(44, 35, 25, 0.08);
+}
+
+.ka-docket__drag-handle:active {
+  cursor: grabbing;
+}
+
+.ka-docket__drag-handle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ka-docket__drag-handle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(135, 23, 25, 0.2), 0 8px 18px rgba(44, 35, 25, 0.08);
+}
+
+.ka-column--over .ka-column__cards {
+  outline: 2px solid rgba(135, 23, 25, 0.32);
+  outline-offset: -8px;
+  background: rgba(135, 23, 25, 0.045);
+}
+
+.ka-docket--overlay {
+  width: min(320px, 82vw);
+  cursor: grabbing;
+  transform: rotate(-1.2deg);
+  box-shadow: 0 26px 55px rgba(44, 35, 25, 0.24);
+}
+
+.ka-docket--overlay .ka-docket__drag-handle,
+.ka-docket--overlay .ka-docket__stamp {
+  display: none;
+}
+
+.ka-docket--dragging {
+  opacity: 0.36;
+  transform: none;
+}
+
+.ka-docket--dragging:hover {
+  transform: none;
+}
+
+.ka-docket--moving .ka-docket__drag-handle {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .ka-docket__drag-handle span {
+    display: none;
+  }
+
+  .ka-docket__drag-handle {
+    width: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+}
