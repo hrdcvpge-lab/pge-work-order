@@ -206,7 +206,7 @@ function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus
   const dragEnabled = canMoveStatus && status !== 'closed' && !isMoving
   const blocker = getCardBlocker(workOrder)
   const overdue = isOverdue(workOrder)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: workOrder.id,
     data: { type: 'work-order-card', workOrderId: workOrder.id },
     disabled: !dragEnabled,
@@ -214,7 +214,6 @@ function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus
 
   const style: CSSProperties = {
     transform: DndCSS.Transform.toString(transform),
-    transition,
   }
 
   const dragHandle = dragEnabled ? (
