@@ -373,7 +373,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   const [statusFilter, setStatusFilter] = useState<'all' | WorkOrder['status']>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all')
   const [orderListTab, setOrderListTab] = useState<'active' | 'draft' | 'running' | 'done' | 'all'>('active')
-  const [orderViewMode, setOrderViewMode] = useState<'board' | 'list'>(() => window.localStorage.getItem('pge-order-view-mode') === 'list' ? 'list' : 'board')
+  const [orderViewMode, setOrderViewMode] = useState<'board' | 'list'>(() => window.localStorage.getItem('pge-mvp-order-view-mode') === 'board' ? 'board' : 'list')
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
   const [isLoadingWorkOrders, setIsLoadingWorkOrders] = useState(true)
@@ -443,7 +443,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   }, [modal?.type, currentUser.id])
 
   useEffect(() => {
-    window.localStorage.setItem('pge-order-view-mode', orderViewMode)
+    window.localStorage.setItem('pge-mvp-order-view-mode', orderViewMode)
   }, [orderViewMode])
 
   const reloadWorkOrders = async () => {
@@ -863,20 +863,20 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             <article className={`surface-card ${orderViewMode === 'board' ? 'surface-card--orders-board' : ''}`}>
               <header className="surface-card__header surface-card__header--orders">
                 <div>
-                  <p className="eyebrow">{orderViewMode === 'board' ? 'Papan produksi' : 'Daftar utama'}</p>
-                  <h2>{orderViewMode === 'board' ? 'Papan Kartu Antrian' : hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2>
+                  <p className="eyebrow">{orderViewMode === 'board' ? 'Papan Beta' : 'Daftar utama'}</p>
+                  <h2>{orderViewMode === 'board' ? 'Papan Kartu Antrian · Beta' : hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2>
                   <span>{orderViewMode === 'board'
                     ? hasFullWorkOrderAccess(currentUser)
-                      ? 'Drag kartu untuk koreksi status. Detail proses dan Close WO tetap lewat modal WO.'
-                      : 'Mode baca: buka kartu untuk melihat atau menyelesaikan proses yang ditugaskan.'
+                      ? 'Beta: papan untuk overview dan koreksi status terbatas. Eksekusi proses, qty, QC, Close, dan Archive tetap lewat modal WO.'
+                      : 'Beta mode baca: buka kartu untuk melihat detail. Eksekusi utama tetap melalui modal WO.'
                     : hasFullWorkOrderAccess(currentUser)
                       ? 'Default menampilkan WO aktif. WO selesai dipindahkan ke tab Selesai atau Laporan.'
                       : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span>
                 </div>
                 <div className="orders-header-actions">
                   <div className="order-view-toggle" role="tablist" aria-label="Pilih tampilan Work Order">
-                    <button type="button" className={orderViewMode === 'board' ? 'is-active' : ''} onClick={() => setOrderViewMode('board')}>Papan</button>
-                    <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar</button>
+                    <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar MVP</button>
+                    <button type="button" className={orderViewMode === 'board' ? 'is-active' : ''} onClick={() => setOrderViewMode('board')}>Papan Beta</button>
                   </div>
                   <Badge kind="plain" value={`${orderViewMode === 'board' ? boardOrders.length : filteredOrders.length} WO`} />
                 </div>
@@ -895,7 +895,13 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                 {orderViewMode === 'list' ? <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Semua status</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select> : null}
                 <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)}><option value="all">Semua prioritas</option>{Object.entries(priorityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
               </div>
-              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={boardOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} onOpenAction={openKanbanAction} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
+              {orderViewMode === 'board' ? <>
+                <div className="mvp-beta-warning" role="note">
+                  <Icon name="warning" />
+                  <span><b>Papan masih beta.</b> Gunakan untuk monitoring dan koreksi status terbatas. Untuk kerja harian yang aman, pakai Daftar MVP dan modal WO sebagai sumber eksekusi.</span>
+                </div>
+                <WorkOrderKanbanBoard workOrders={boardOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} onOpenAction={openKanbanAction} />
+              </> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
                   const activeStep = order.steps.find((step) => deriveStepStatus(order, step) === 'in_progress')

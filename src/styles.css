@@ -6758,3 +6758,101 @@ body {
   border-color: var(--ka-hairline) !important;
   color: var(--ka-ink) !important;
 }
+
+/* v0.6.4.1 — Orders board redundancy cleanup */
+.surface-card--orders-board {
+  padding-bottom: 18px;
+}
+
+.surface-card__header--orders {
+  align-items: center;
+  gap: 18px;
+}
+
+.orders-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.filter-row--orders.filter-row--board {
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 220px);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ka-hairline, #e3dccb);
+}
+
+.surface-card--orders-board .wo-list-tabs {
+  display: none;
+}
+
+.surface-card--orders-board .ka-board-shell {
+  margin-top: 14px;
+  box-shadow: none;
+}
+
+.ka-board-shell__legend--compact {
+  justify-content: flex-start;
+  max-width: none;
+  margin-bottom: 10px;
+}
+
+.ka-board-shell__legend--compact span {
+  padding: 5px 8px;
+  font-size: 10px;
+  background: rgba(255, 250, 241, 0.64);
+}
+
+@media (max-width: 760px) {
+  .surface-card__header--orders,
+  .orders-header-actions {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .filter-row--orders.filter-row--board {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* v0.7.0 MVP stabilization: keep production-safe list/modal workflow primary. */
+.mvp-beta-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(169, 118, 44, 0.28);
+  border-radius: 14px;
+  background: #fff8e8;
+  color: #604316;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mvp-beta-warning svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
+.orders-header-actions .order-view-toggle button:first-child.is-active {
+  background: #0f172a;
+  color: #fff;
+}
+
+.orders-header-actions .order-view-toggle button:last-child.is-active {
+  background: #871719;
+  color: #fff8ea;
+}
+
+.ka-board-shell::before {
+  content: 'Beta: papan membaca status WO tersimpan. Close/Archive tetap dari modal WO.';
+  display: block;
+  margin: 0 0 10px;
+  color: #756f65;
+  font-size: 12px;
+}
