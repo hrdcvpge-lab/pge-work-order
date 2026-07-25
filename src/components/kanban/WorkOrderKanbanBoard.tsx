@@ -17,6 +17,7 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS as DndCSS } from '@dnd-kit/utilities'
 import type { StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderStatus } from '../../types/workOrder'
+import { getWorkOrderCurrentAction, shouldOpenModalBeforeKanbanMove, type WorkOrderCurrentAction } from '../../utils/workOrderActions'
 import {
   deriveOrderStatus,
   deriveStepStatus,
@@ -43,6 +44,7 @@ type WorkOrderKanbanBoardProps = {
   canMoveStatus: boolean
   onMoveStatus: (workOrder: WorkOrder, targetStatus: WorkOrderStatus) => Promise<boolean>
   onOpenOrder: (workOrder: WorkOrder) => void
+  onOpenAction: (workOrder: WorkOrder, action: WorkOrderCurrentAction) => void
 }
 
 type KanbanColumn = {
@@ -114,9 +116,10 @@ type DocketContentProps = {
   staffDirectory: StaffDirectoryMember[]
   canMoveStatus: boolean
   dragHandle?: ReactNode
+  onOpenAction: (workOrder: WorkOrder, action: WorkOrderCurrentAction) => void
 }
 
-function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, dragHandle }: DocketContentProps) {
+function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, dragHandle, onOpenAction }: DocketContentProps) {
   const status = deriveOrderStatus(workOrder)
   const currentStep = getCurrentProcess(workOrder)
   const currentStepStatus = currentStep ? deriveStepStatus(workOrder, currentStep) : undefined
@@ -131,6 +134,7 @@ function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, 
   const isFloorRole = !['admin', 'ppic', 'manager'].includes(currentUser.role)
   const assignedCurrentStep = currentStep?.assignedUserId === currentUser.id
   const canFinishOwnStep = isFloorRole && assignedCurrentStep && ['ready', 'in_progress', 'partial_paused'].includes(currentStepStatus || 'not_ready')
+  const currentAction = getWorkOrderCurrentAction(workOrder, currentUser.role)
 
   return (
     <>
@@ -184,7 +188,19 @@ function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, 
 
         <div className="ka-docket__footer">
           <span>{formatNumber(completedSteps)}/{formatNumber(totalSteps)} proses · {progress}%</span>
-          {canFinishOwnStep ? <button type="button" onClick={(event) => event.stopPropagation()}>Selesai</button> : <span>{currentStepStatus ? processLabels[currentStepStatus] : statusLabels[status]}</span>}
+          {currentAction.kind !== 'none' ? (
+            <button
+              className={`ka-docket__action ka-docket__action--${currentAction.severity}`}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenAction(workOrder, currentAction)
+              }}
+              title={currentAction.note}
+            >
+              {canFinishOwnStep && currentAction.kind === 'log_result' ? 'Selesai' : currentAction.label}
+            </button>
+          ) : <span>{currentStepStatus ? processLabels[currentStepStatus] : statusLabels[status]}</span>}
         </div>
       </div>
     </>
@@ -199,9 +215,10 @@ type DraggableDocketProps = {
   isMoving: boolean
   isStamped: boolean
   onOpenOrder: (workOrder: WorkOrder) => void
+  onOpenAction: (workOrder: WorkOrder, action: WorkOrderCurrentAction) => void
 }
 
-function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus, isMoving, isStamped, onOpenOrder }: DraggableDocketProps) {
+function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus, isMoving, isStamped, onOpenOrder, onOpenAction }: DraggableDocketProps) {
   const status = deriveOrderStatus(workOrder)
   const dragEnabled = canMoveStatus && status !== 'closed' && !isMoving
   const blocker = getCardBlocker(workOrder)
@@ -247,7 +264,7 @@ function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus
       }}
       aria-label={`${workOrder.code} ${workOrder.product}`}
     >
-      <DocketContent workOrder={workOrder} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={canMoveStatus} dragHandle={dragHandle} />
+      <DocketContent workOrder={workOrder} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={canMoveStatus} dragHandle={dragHandle} onOpenAction={onOpenAction} />
     </article>
   )
 }
@@ -261,9 +278,10 @@ type KanbanColumnViewProps = {
   stampedOrderId: string | null
   dropErrorStatus: WorkOrderStatus | null
   onOpenOrder: (workOrder: WorkOrder) => void
+  onOpenAction: (workOrder: WorkOrder, action: WorkOrderCurrentAction) => void
 }
 
-function KanbanColumnView({ column, currentUser, staffDirectory, canMoveStatus, movingOrderId, stampedOrderId, dropErrorStatus, onOpenOrder }: KanbanColumnViewProps) {
+function KanbanColumnView({ column, currentUser, staffDirectory, canMoveStatus, movingOrderId, stampedOrderId, dropErrorStatus, onOpenOrder, onOpenAction }: KanbanColumnViewProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: column.id,
     data: { type: 'kanban-column', status: column.id },
@@ -295,6 +313,7 @@ function KanbanColumnView({ column, currentUser, staffDirectory, canMoveStatus, 
             isMoving={movingOrderId === order.id}
             isStamped={stampedOrderId === order.id}
             onOpenOrder={onOpenOrder}
+            onOpenAction={onOpenAction}
           />
         )) : <div className="ka-column__empty">Tidak ada WO.</div>}
       </div>
@@ -302,7 +321,7 @@ function KanbanColumnView({ column, currentUser, staffDirectory, canMoveStatus, 
   )
 }
 
-export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, canMoveStatus, onMoveStatus, onOpenOrder }: WorkOrderKanbanBoardProps) {
+export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, canMoveStatus, onMoveStatus, onOpenOrder, onOpenAction }: WorkOrderKanbanBoardProps) {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
   const [movingOrderId, setMovingOrderId] = useState<string | null>(null)
   const [stampedOrderId, setStampedOrderId] = useState<string | null>(null)
@@ -344,6 +363,13 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
 
     if (targetStatus === 'closed') {
       rejectDrop('Close WO tetap memakai tombol Close WO, bukan drag kanban.', targetStatus)
+      return
+    }
+
+    const currentAction = getWorkOrderCurrentAction(draggedOrder, currentUser.role)
+    if (shouldOpenModalBeforeKanbanMove(draggedOrder, currentUser.role, targetStatus)) {
+      rejectDrop(`${currentAction.label} harus diselesaikan dari modal WO terlebih dahulu.`, targetStatus)
+      onOpenAction(draggedOrder, currentAction)
       return
     }
 
@@ -420,13 +446,14 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
               stampedOrderId={stampedOrderId}
               dropErrorStatus={dropTargetStatus}
               onOpenOrder={onOpenOrder}
+              onOpenAction={onOpenAction}
             />
           ))}
         </div>
         <DragOverlay adjustScale={false}>
           {activeOrder ? (
             <article className={`ka-docket ka-docket--overlay ka-docket--${activeOrder.priority}${isOverdue(activeOrder) ? ' ka-docket--overdue' : ''}${getCardBlocker(activeOrder) ? ' ka-docket--blocked' : ''}`}>
-              <DocketContent workOrder={activeOrder} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={canMoveStatus} />
+              <DocketContent workOrder={activeOrder} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={canMoveStatus} onOpenAction={onOpenAction} />
             </article>
           ) : null}
         </DragOverlay>
