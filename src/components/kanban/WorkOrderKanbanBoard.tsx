@@ -1,23 +1,6 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import {
-  closestCorners,
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragCancelEvent,
-  type DragEndEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core'
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { CSS as DndCSS } from '@dnd-kit/utilities'
+import { useMemo, type ReactNode } from 'react'
 import type { StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderStatus } from '../../types/workOrder'
-import { getWorkOrderCurrentAction, shouldOpenModalBeforeKanbanMove, type WorkOrderCurrentAction } from '../../utils/workOrderActions'
+import { getWorkOrderCurrentAction, type WorkOrderCurrentAction } from '../../utils/workOrderActions'
 import {
   deriveStepStatus,
   formatDate,
@@ -29,7 +12,6 @@ import {
   getProgress,
   isOverdue,
   priorityLabels,
-  processLabels,
   stationLabels,
   statusLabels,
   typeLabels,
@@ -67,6 +49,8 @@ const KANBAN_COLUMNS: KanbanColumn[] = [
   { id: 'closed', title: statusLabels.closed, note: 'Sudah ditutup' },
 ]
 
+const TERMINAL_STATUSES: WorkOrderStatus[] = ['done', 'closed', 'cancelled']
+
 function getDirectoryName(id: string | undefined, directory: StaffDirectoryMember[]) {
   if (!id) return 'Belum ditetapkan'
   return directory.find((member) => member.id === id)?.name || 'Belum ditetapkan'
@@ -101,27 +85,21 @@ function getVisibleArtwork(workOrder: WorkOrder) {
   return getApprovedPrimaryArtwork(workOrder) || workOrder.referenceImages?.find((image) => image.isPrimary) || workOrder.referenceImages?.[0]
 }
 
-function isTargetPastArtworkGate(targetStatus: WorkOrderStatus) {
-  return ['in_progress', 'qc', 'packing', 'done'].includes(targetStatus)
-}
-
-function isKanbanStatus(value: string): value is WorkOrderStatus {
-  return KANBAN_COLUMNS.some((column) => column.id === value)
+function needsStatusReview(workOrder: WorkOrder) {
+  const progress = getProgress(workOrder)
+  return progress >= 100 && !TERMINAL_STATUSES.includes(workOrder.status)
 }
 
 type DocketContentProps = {
   workOrder: WorkOrder
   currentUser: TeamMember
   staffDirectory: StaffDirectoryMember[]
-  canMoveStatus: boolean
-  dragHandle?: ReactNode
-  onOpenAction: (workOrder: WorkOrder, action: WorkOrderCurrentAction) => void
+  actionSlot?: ReactNode
 }
 
-function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, dragHandle, onOpenAction }: DocketContentProps) {
+function DocketContent({ workOrder, currentUser, staffDirectory, actionSlot }: DocketContentProps) {
   const status = workOrder.status
   const currentStep = getCurrentProcess(workOrder)
-  const currentStepStatus = currentStep ? deriveStepStatus(workOrder, currentStep) : undefined
   const progress = getProgress(workOrder)
   const artwork = getVisibleArtwork(workOrder)
   const artworkReadiness = getArtworkReadiness(workOrder)
@@ -130,16 +108,13 @@ function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, 
   const completedSteps = getCompletedStepCount(workOrder)
   const totalSteps = Math.max(1, workOrder.steps.length)
   const picName = getCurrentPicName(workOrder, staffDirectory)
-  const isFloorRole = !['admin', 'ppic', 'manager'].includes(currentUser.role)
-  const assignedCurrentStep = currentStep?.assignedUserId === currentUser.id
-  const canFinishOwnStep = isFloorRole && assignedCurrentStep && ['ready', 'in_progress', 'partial_paused'].includes(currentStepStatus || 'not_ready')
   const currentAction = getWorkOrderCurrentAction(workOrder, currentUser.role)
+  const reviewNeeded = needsStatusReview(workOrder)
+  const isClosed = status === 'closed'
 
   return (
     <>
       <span className="ka-docket__priority-strip" aria-hidden="true" />
-      <span className="ka-docket__stamp" aria-hidden="true">PINDAH</span>
-      {dragHandle}
       <div className="ka-docket__top">
         <div className="ka-docket__identity">
           <strong className="ka-docket__code">{workOrder.code}</strong>
@@ -156,7 +131,7 @@ function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, 
       <div className="ka-docket__meta-line">
         <span className={`ka-pill ka-pill--${workOrder.type}`}>{typeLabels[workOrder.type]}</span>
         <span className={`ka-pill ka-pill--${workOrder.priority}`}>{priorityLabels[workOrder.priority]}</span>
-        {canMoveStatus && status !== 'closed' ? <span className="ka-pill ka-pill--drag">Drag</span> : null}
+        {reviewNeeded ? <span className="ka-pill ka-pill--review">Perlu review status</span> : null}
       </div>
 
       <div className="ka-docket__perforation" />
@@ -165,10 +140,12 @@ function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, 
         <div className="ka-docket__due">
           <Icon name="clock" />
           <span>Due {formatDate(workOrder.dueDate)}</span>
-          {overdue ? <b>Terlambat</b> : null}
+          {overdue && !isClosed ? <b>Terlambat</b> : null}
         </div>
 
-        {blocker ? (
+        {isClosed ? (
+          <div className="ka-docket__closed-note"><Icon name="check" /> <span>Ditutup · data produksi terkunci</span></div>
+        ) : blocker ? (
           <div className="ka-docket__blocked-note"><Icon name="pause" /> <span>{blocker}</span></div>
         ) : (
           <div className="ka-docket__pic-line">
@@ -181,76 +158,54 @@ function DocketContent({ workOrder, currentUser, staffDirectory, canMoveStatus, 
           <div className="ka-docket__artwork-warning"><Icon name="warning" /> {artworkReadiness.reason}</div>
         ) : null}
 
-        <div className="ka-segments" aria-label={`${completedSteps} dari ${totalSteps} proses selesai`}>
-          {workOrder.steps.map((step) => <span key={step.id} className={deriveStepStatus(workOrder, step) === 'completed' ? 'is-done' : ''} />)}
-        </div>
+        {!isClosed ? (
+          <div className="ka-segments" aria-label={`${completedSteps} dari ${totalSteps} proses selesai`}>
+            {workOrder.steps.map((step) => <span key={step.id} className={deriveStepStatus(workOrder, step) === 'completed' ? 'is-done' : ''} />)}
+          </div>
+        ) : null}
 
         <div className="ka-docket__footer">
-          <span>{formatNumber(completedSteps)}/{formatNumber(totalSteps)} proses · {progress}%</span>
-          {currentAction.kind !== 'none' ? (
-            <button
-              className={`ka-docket__action ka-docket__action--${currentAction.severity}`}
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                onOpenAction(workOrder, currentAction)
-              }}
-              title={currentAction.note}
-            >
-              {canFinishOwnStep && currentAction.kind === 'log_result' ? 'Selesai' : currentAction.label}
-            </button>
-          ) : <span>{currentStepStatus ? processLabels[currentStepStatus] : statusLabels[status]}</span>}
+          <span>
+            {isClosed
+              ? `${formatNumber(workOrder.qty)} unit · ${statusLabels.closed}`
+              : `${formatNumber(completedSteps)}/${formatNumber(totalSteps)} proses · ${progress}%`}
+          </span>
+          {actionSlot || <span>{currentAction.title}</span>}
         </div>
       </div>
     </>
   )
 }
 
-type DraggableDocketProps = {
+type DocketProps = {
   workOrder: WorkOrder
   currentUser: TeamMember
   staffDirectory: StaffDirectoryMember[]
-  canMoveStatus: boolean
-  isMoving: boolean
-  isStamped: boolean
   onOpenOrder: (workOrder: WorkOrder) => void
   onOpenAction: (workOrder: WorkOrder, action: WorkOrderCurrentAction) => void
 }
 
-function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus, isMoving, isStamped, onOpenOrder, onOpenAction }: DraggableDocketProps) {
-  const status = workOrder.status
-  const dragEnabled = canMoveStatus && status !== 'closed' && !isMoving
+function Docket({ workOrder, currentUser, staffDirectory, onOpenOrder, onOpenAction }: DocketProps) {
   const blocker = getCardBlocker(workOrder)
   const overdue = isOverdue(workOrder)
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: workOrder.id,
-    data: { type: 'work-order-card', workOrderId: workOrder.id },
-    disabled: !dragEnabled,
-  })
+  const currentAction = getWorkOrderCurrentAction(workOrder, currentUser.role)
+  const reviewNeeded = needsStatusReview(workOrder)
 
-  const style: CSSProperties = {
-    transform: DndCSS.Transform.toString(transform),
+  const handlePrimaryAction = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    if (currentAction.opensModal && currentAction.kind !== 'close_order') {
+      onOpenAction(workOrder, currentAction)
+      return
+    }
+    onOpenOrder(workOrder)
   }
 
-  const dragHandle = dragEnabled ? (
-    <button
-      className="ka-docket__drag-handle"
-      type="button"
-      aria-label={`Pindahkan ${workOrder.code}`}
-      onClick={(event) => event.stopPropagation()}
-      {...attributes}
-      {...listeners}
-    >
-      <Icon name="more" />
-      <span>Drag</span>
-    </button>
-  ) : null
+  const actionLabel = reviewNeeded ? 'Review WO' : 'Buka detail'
+  const actionSeverity = reviewNeeded ? 'warning' : 'neutral'
 
   return (
     <article
-      ref={setNodeRef}
-      style={style}
-      className={`ka-docket ka-docket--${workOrder.priority}${overdue ? ' ka-docket--overdue' : ''}${blocker ? ' ka-docket--blocked' : ''}${isDragging ? ' ka-docket--dragging' : ''}${isMoving ? ' ka-docket--moving' : ''}${isStamped ? ' ka-docket--stamped' : ''}`}
+      className={`ka-docket ka-docket--readonly ka-docket--${workOrder.priority}${overdue ? ' ka-docket--overdue' : ''}${blocker ? ' ka-docket--blocked' : ''}${reviewNeeded ? ' ka-docket--review' : ''}`}
       onClick={() => onOpenOrder(workOrder)}
       role="button"
       tabIndex={0}
@@ -263,7 +218,21 @@ function DraggableDocket({ workOrder, currentUser, staffDirectory, canMoveStatus
       }}
       aria-label={`${workOrder.code} ${workOrder.product}`}
     >
-      <DocketContent workOrder={workOrder} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={canMoveStatus} dragHandle={dragHandle} onOpenAction={onOpenAction} />
+      <DocketContent
+        workOrder={workOrder}
+        currentUser={currentUser}
+        staffDirectory={staffDirectory}
+        actionSlot={(
+          <button
+            className={`ka-docket__action ka-docket__action--${actionSeverity}`}
+            type="button"
+            onClick={handlePrimaryAction}
+            title={reviewNeeded ? 'Output terlihat penuh, tetapi status WO belum terminal. Review dari detail WO.' : 'Buka detail WO'}
+          >
+            {actionLabel}
+          </button>
+        )}
+      />
     </article>
   )
 }
@@ -272,24 +241,14 @@ type KanbanColumnViewProps = {
   column: GroupedKanbanColumn
   currentUser: TeamMember
   staffDirectory: StaffDirectoryMember[]
-  canMoveStatus: boolean
-  movingOrderId: string | null
-  stampedOrderId: string | null
-  dropErrorStatus: WorkOrderStatus | null
   onOpenOrder: (workOrder: WorkOrder) => void
   onOpenAction: (workOrder: WorkOrder, action: WorkOrderCurrentAction) => void
 }
 
-function KanbanColumnView({ column, currentUser, staffDirectory, canMoveStatus, movingOrderId, stampedOrderId, dropErrorStatus, onOpenOrder, onOpenAction }: KanbanColumnViewProps) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: column.id,
-    data: { type: 'kanban-column', status: column.id },
-    disabled: !canMoveStatus,
-  })
-
+function KanbanColumnView({ column, currentUser, staffDirectory, onOpenOrder, onOpenAction }: KanbanColumnViewProps) {
   return (
     <section
-      className={`ka-column${isOver && canMoveStatus ? ' ka-column--over' : ''}${dropErrorStatus === column.id ? ' ka-column--drop-error' : ''}${canMoveStatus ? ' ka-column--droppable' : ''}`}
+      className={`ka-column${column.orders.length ? '' : ' ka-column--empty-state'}`}
       key={column.id}
       aria-labelledby={`ka-column-${column.id}`}
     >
@@ -301,16 +260,13 @@ function KanbanColumnView({ column, currentUser, staffDirectory, canMoveStatus, 
         </div>
         <strong>{formatNumber(column.orders.length)}</strong>
       </header>
-      <div ref={setNodeRef} className="ka-column__cards">
+      <div className="ka-column__cards">
         {column.orders.length ? column.orders.map((order) => (
-          <DraggableDocket
+          <Docket
             key={order.id}
             workOrder={order}
             currentUser={currentUser}
             staffDirectory={staffDirectory}
-            canMoveStatus={canMoveStatus}
-            isMoving={movingOrderId === order.id}
-            isStamped={stampedOrderId === order.id}
             onOpenOrder={onOpenOrder}
             onOpenAction={onOpenAction}
           />
@@ -320,19 +276,7 @@ function KanbanColumnView({ column, currentUser, staffDirectory, canMoveStatus, 
   )
 }
 
-export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, canMoveStatus, onMoveStatus, onOpenOrder, onOpenAction }: WorkOrderKanbanBoardProps) {
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
-  const [movingOrderId, setMovingOrderId] = useState<string | null>(null)
-  const [stampedOrderId, setStampedOrderId] = useState<string | null>(null)
-  const [dropTargetStatus, setDropTargetStatus] = useState<WorkOrderStatus | null>(null)
-  const [dropError, setDropError] = useState('')
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 160, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
-
+export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, canMoveStatus, onOpenOrder, onOpenAction }: WorkOrderKanbanBoardProps) {
   const grouped = useMemo(() => KANBAN_COLUMNS.map((column) => {
     const orders = workOrders.filter((order) => order.status === column.id)
     const plannedQty = orders.reduce((sum, order) => sum + order.qty, 0)
@@ -340,116 +284,37 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
   }), [workOrders])
 
   const cancelledOrders = useMemo(() => workOrders.filter((order) => order.status === 'cancelled'), [workOrders])
-  const activeOrder = activeOrderId ? workOrders.find((order) => order.id === activeOrderId) : undefined
-
-  const rejectDrop = (message: string, targetStatus: WorkOrderStatus) => {
-    setDropError(message)
-    setDropTargetStatus(targetStatus)
-    window.setTimeout(() => {
-      setDropError('')
-      setDropTargetStatus(null)
-    }, 2_800)
-  }
-
-  const moveOrder = async (draggedOrder: WorkOrder, targetStatus: WorkOrderStatus) => {
-    const sourceStatus = draggedOrder.status
-    if (sourceStatus === targetStatus) return
-
-    if (!canMoveStatus) {
-      rejectDrop('Role ini hanya bisa melihat papan. Perpindahan bebas hanya untuk Admin, PPIC, atau Manager.', targetStatus)
-      return
-    }
-
-    if (targetStatus === 'closed') {
-      rejectDrop('Close WO tetap memakai tombol Close WO, bukan drag kanban.', targetStatus)
-      return
-    }
-
-    const currentAction = getWorkOrderCurrentAction(draggedOrder, currentUser.role)
-    if (shouldOpenModalBeforeKanbanMove(draggedOrder, currentUser.role, targetStatus)) {
-      rejectDrop(`${currentAction.label} harus diselesaikan dari modal WO terlebih dahulu.`, targetStatus)
-      onOpenAction(draggedOrder, currentAction)
-      return
-    }
-
-    const artworkReadiness = getArtworkReadiness(draggedOrder)
-    if (draggedOrder.artworkApprovalRequired && !artworkReadiness.ready && isTargetPastArtworkGate(targetStatus)) {
-      rejectDrop(artworkReadiness.reason || 'Artwork belum siap untuk melewati tahap awal.', targetStatus)
-      return
-    }
-
-    setMovingOrderId(draggedOrder.id)
-    const moved = await onMoveStatus(draggedOrder, targetStatus)
-    setMovingOrderId(null)
-
-    if (moved) {
-      setStampedOrderId(draggedOrder.id)
-      window.setTimeout(() => setStampedOrderId(null), 900)
-    }
-  }
-
-  const handleDragStart = (event: DragStartEvent) => {
-    const nextId = String(event.active.id)
-    if (workOrders.some((order) => order.id === nextId)) setActiveOrderId(nextId)
-  }
-
-  const handleDragCancel = (_event: DragCancelEvent) => {
-    setActiveOrderId(null)
-    setDropTargetStatus(null)
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const activeId = String(event.active.id)
-    const draggedOrder = workOrders.find((order) => order.id === activeId)
-    const overId = event.over ? String(event.over.id) : ''
-    setActiveOrderId(null)
-    setDropTargetStatus(null)
-
-    if (!draggedOrder || !isKanbanStatus(overId)) return
-    void moveOrder(draggedOrder, overId)
-  }
+  const reviewCount = useMemo(() => workOrders.filter(needsStatusReview).length, [workOrders])
 
   return (
-    <section className="ka-board-shell" aria-label="Papan Work Order Kartu Antrian">
+    <section className="ka-board-shell ka-board-shell--readonly" aria-label="Papan Work Order Kartu Antrian">
+      <div className="ka-readonly-banner">
+        <Icon name="warning" />
+        <div>
+          <strong>Papan Beta hanya untuk monitoring.</strong>
+          <span> Drag status dinonaktifkan untuk MVP karena eksekusi resmi tetap melalui detail/modal WO. {canMoveStatus ? 'Admin/PPIC tetap bisa membuka detail untuk koreksi status.' : 'Role ini hanya dapat melihat papan.'}</span>
+        </div>
+      </div>
+
       <div className="ka-board-shell__legend ka-board-shell__legend--compact" aria-label="Keterangan status kartu">
         <span><i className="ka-legend-dot ka-legend-dot--p1" /> P1</span>
         <span><i className="ka-legend-dot ka-legend-dot--hold" /> HOLD</span>
         <span><i className="ka-legend-dot ka-legend-dot--late" /> Terlambat</span>
+        {reviewCount ? <span><i className="ka-legend-dot ka-legend-dot--review" /> {formatNumber(reviewCount)} perlu review</span> : null}
       </div>
 
-      {dropError ? <div className="ka-drop-error"><Icon name="warning" /> {dropError}</div> : null}
-
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragCancel={handleDragCancel}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="ka-board">
-          {grouped.map((column) => (
-            <KanbanColumnView
-              key={column.id}
-              column={column}
-              currentUser={currentUser}
-              staffDirectory={staffDirectory}
-              canMoveStatus={canMoveStatus}
-              movingOrderId={movingOrderId}
-              stampedOrderId={stampedOrderId}
-              dropErrorStatus={dropTargetStatus}
-              onOpenOrder={onOpenOrder}
-              onOpenAction={onOpenAction}
-            />
-          ))}
-        </div>
-        <DragOverlay adjustScale={false}>
-          {activeOrder ? (
-            <article className={`ka-docket ka-docket--overlay ka-docket--${activeOrder.priority}${isOverdue(activeOrder) ? ' ka-docket--overdue' : ''}${getCardBlocker(activeOrder) ? ' ka-docket--blocked' : ''}`}>
-              <DocketContent workOrder={activeOrder} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={canMoveStatus} onOpenAction={onOpenAction} />
-            </article>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      <div className="ka-board">
+        {grouped.map((column) => (
+          <KanbanColumnView
+            key={column.id}
+            column={column}
+            currentUser={currentUser}
+            staffDirectory={staffDirectory}
+            onOpenOrder={onOpenOrder}
+            onOpenAction={onOpenAction}
+          />
+        ))}
+      </div>
 
       {cancelledOrders.length ? (
         <details className="ka-cancelled-lane">
