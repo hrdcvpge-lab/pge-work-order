@@ -24,4 +24,4 @@ The workflow must pass both values into the Vite build step. Do not put a servic
 
 ## Upload strategy
 
-Replace the complete `src/` folder, `package.json`, and `.github/workflows/deploy.yml` with the contents of this package. Do not mix older patch files into this release.
+Replace the complete `src/` folder, `package.json`, and `.github/workflows/deploy.yml` with the contents of this package. Do not mix older patch files into this release...
