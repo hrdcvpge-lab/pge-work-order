@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { StaffDirectoryMember, TeamMember, WorkOrder, WorkOrderStatus } from '../../types/workOrder'
 import {
   deriveOrderStatus,
@@ -22,6 +23,8 @@ type WorkOrderKanbanBoardProps = {
   workOrders: WorkOrder[]
   currentUser: TeamMember
   staffDirectory: StaffDirectoryMember[]
+  canMoveStatus: boolean
+  onMoveStatus: (workOrder: WorkOrder, targetStatus: WorkOrderStatus) => Promise<boolean>
   onOpenOrder: (workOrder: WorkOrder) => void
 }
 
@@ -75,14 +78,35 @@ function getVisibleArtwork(workOrder: WorkOrder) {
   return getApprovedPrimaryArtwork(workOrder) || workOrder.referenceImages?.find((image) => image.isPrimary) || workOrder.referenceImages?.[0]
 }
 
+function isTargetPastArtworkGate(targetStatus: WorkOrderStatus) {
+  return ['in_progress', 'qc', 'packing', 'done'].includes(targetStatus)
+}
+
 type WorkOrderKanbanCardProps = {
   workOrder: WorkOrder
   currentUser: TeamMember
   staffDirectory: StaffDirectoryMember[]
+  canMoveStatus: boolean
+  isDragging: boolean
+  isMoving: boolean
+  isStamped: boolean
+  onDragStart: (workOrder: WorkOrder) => void
+  onDragEnd: () => void
   onOpenOrder: (workOrder: WorkOrder) => void
 }
 
-function WorkOrderKanbanCard({ workOrder, currentUser, staffDirectory, onOpenOrder }: WorkOrderKanbanCardProps) {
+function WorkOrderKanbanCard({
+  workOrder,
+  currentUser,
+  staffDirectory,
+  canMoveStatus,
+  isDragging,
+  isMoving,
+  isStamped,
+  onDragStart,
+  onDragEnd,
+  onOpenOrder,
+}: WorkOrderKanbanCardProps) {
   const status = deriveOrderStatus(workOrder)
   const currentStep = getCurrentProcess(workOrder)
   const currentStepStatus = currentStep ? deriveStepStatus(workOrder, currentStep) : undefined
@@ -97,10 +121,19 @@ function WorkOrderKanbanCard({ workOrder, currentUser, staffDirectory, onOpenOrd
   const isFloorRole = !['admin', 'ppic', 'manager'].includes(currentUser.role)
   const assignedCurrentStep = currentStep?.assignedUserId === currentUser.id
   const canFinishOwnStep = isFloorRole && assignedCurrentStep && ['ready', 'in_progress', 'partial_paused'].includes(currentStepStatus || 'not_ready')
+  const dragEnabled = canMoveStatus && status !== 'closed' && !isMoving
 
   return (
     <article
-      className={`ka-docket ka-docket--${workOrder.priority}${overdue ? ' ka-docket--overdue' : ''}${blocker ? ' ka-docket--blocked' : ''}`}
+      className={`ka-docket ka-docket--${workOrder.priority}${overdue ? ' ka-docket--overdue' : ''}${blocker ? ' ka-docket--blocked' : ''}${isDragging ? ' ka-docket--dragging' : ''}${isMoving ? ' ka-docket--moving' : ''}${isStamped ? ' ka-docket--stamped' : ''}`}
+      draggable={dragEnabled}
+      onDragStart={(event) => {
+        if (!dragEnabled) return
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', workOrder.id)
+        onDragStart(workOrder)
+      }}
+      onDragEnd={onDragEnd}
       onClick={() => onOpenOrder(workOrder)}
       role="button"
       tabIndex={0}
@@ -113,6 +146,7 @@ function WorkOrderKanbanCard({ workOrder, currentUser, staffDirectory, onOpenOrd
       aria-label={`${workOrder.code} ${workOrder.product}`}
     >
       <span className="ka-docket__priority-strip" aria-hidden="true" />
+      <span className="ka-docket__stamp" aria-hidden="true">PINDAH</span>
       <div className="ka-docket__top">
         <div className="ka-docket__identity">
           <strong className="ka-docket__code">{workOrder.code}</strong>
@@ -129,6 +163,7 @@ function WorkOrderKanbanCard({ workOrder, currentUser, staffDirectory, onOpenOrd
       <div className="ka-docket__meta-line">
         <span className={`ka-pill ka-pill--${workOrder.type}`}>{typeLabels[workOrder.type]}</span>
         <span className={`ka-pill ka-pill--${workOrder.priority}`}>{priorityLabels[workOrder.priority]}</span>
+        {dragEnabled ? <span className="ka-pill ka-pill--drag">Drag</span> : null}
       </div>
 
       <div className="ka-docket__perforation" />
@@ -166,7 +201,13 @@ function WorkOrderKanbanCard({ workOrder, currentUser, staffDirectory, onOpenOrd
   )
 }
 
-export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, onOpenOrder }: WorkOrderKanbanBoardProps) {
+export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, canMoveStatus, onMoveStatus, onOpenOrder }: WorkOrderKanbanBoardProps) {
+  const [draggedOrderId, setDraggedOrderId] = useState<string | null>(null)
+  const [movingOrderId, setMovingOrderId] = useState<string | null>(null)
+  const [stampedOrderId, setStampedOrderId] = useState<string | null>(null)
+  const [dropTargetStatus, setDropTargetStatus] = useState<WorkOrderStatus | null>(null)
+  const [dropError, setDropError] = useState('')
+
   const grouped = KANBAN_COLUMNS.map((column) => {
     const orders = workOrders.filter((order) => deriveOrderStatus(order) === column.id)
     const plannedQty = orders.reduce((sum, order) => sum + order.qty, 0)
@@ -174,6 +215,49 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
   })
 
   const cancelledOrders = workOrders.filter((order) => deriveOrderStatus(order) === 'cancelled')
+  const draggedOrder = draggedOrderId ? workOrders.find((order) => order.id === draggedOrderId) : undefined
+
+  const rejectDrop = (message: string, targetStatus: WorkOrderStatus) => {
+    setDropError(message)
+    setDropTargetStatus(targetStatus)
+    window.setTimeout(() => {
+      setDropError('')
+      setDropTargetStatus(null)
+    }, 2_800)
+  }
+
+  const handleDrop = async (targetStatus: WorkOrderStatus) => {
+    setDropTargetStatus(null)
+    if (!draggedOrder) return
+
+    const sourceStatus = deriveOrderStatus(draggedOrder)
+    if (sourceStatus === targetStatus) return
+
+    if (!canMoveStatus) {
+      rejectDrop('Role ini hanya bisa melihat papan. Perpindahan bebas hanya untuk Admin, PPIC, atau Manager.', targetStatus)
+      return
+    }
+
+    if (targetStatus === 'closed') {
+      rejectDrop('Close WO tetap memakai tombol Close WO, bukan drag kanban.', targetStatus)
+      return
+    }
+
+    const artworkReadiness = getArtworkReadiness(draggedOrder)
+    if (draggedOrder.artworkApprovalRequired && !artworkReadiness.ready && isTargetPastArtworkGate(targetStatus)) {
+      rejectDrop(artworkReadiness.reason || 'Artwork belum siap untuk melewati tahap awal.', targetStatus)
+      return
+    }
+
+    setMovingOrderId(draggedOrder.id)
+    const moved = await onMoveStatus(draggedOrder, targetStatus)
+    setMovingOrderId(null)
+
+    if (moved) {
+      setStampedOrderId(draggedOrder.id)
+      window.setTimeout(() => setStampedOrderId(null), 900)
+    }
+  }
 
   return (
     <section className="ka-board-shell" aria-label="Papan Work Order Kartu Antrian">
@@ -181,7 +265,7 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
         <div>
           <p className="eyebrow">Coba tampilan baru</p>
           <h3>Papan Kartu Antrian</h3>
-          <span>Preview aman: kartu dapat dibuka untuk detail, perpindahan status drag/drop belum disimpan ke Supabase.</span>
+          <span>{canMoveStatus ? 'Admin / PPIC / Manager dapat drag kartu untuk koreksi status. Close WO tetap lewat tombol Close WO.' : 'Mode baca: role produksi menyelesaikan proses lewat tiket masing-masing.'}</span>
         </div>
         <div className="ka-board-shell__legend" aria-label="Keterangan status kartu">
           <span><i className="ka-legend-dot ka-legend-dot--p1" /> P1</span>
@@ -190,9 +274,26 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
         </div>
       </header>
 
+      {dropError ? <div className="ka-drop-error"><Icon name="warning" /> {dropError}</div> : null}
+
       <div className="ka-board">
         {grouped.map((column) => (
-          <section className="ka-column" key={column.id} aria-labelledby={`ka-column-${column.id}`}>
+          <section
+            className={`ka-column${dropTargetStatus === column.id ? ' ka-column--drop-error' : ''}${draggedOrderId && canMoveStatus ? ' ka-column--droppable' : ''}`}
+            key={column.id}
+            aria-labelledby={`ka-column-${column.id}`}
+            onDragOver={(event) => {
+              if (!draggedOrderId || !canMoveStatus) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = column.id === 'closed' ? 'none' : 'move'
+              setDropTargetStatus(column.id)
+            }}
+            onDragLeave={() => setDropTargetStatus((current) => current === column.id ? null : current)}
+            onDrop={(event) => {
+              event.preventDefault()
+              void handleDrop(column.id)
+            }}
+          >
             <header className="ka-column__header">
               <div>
                 <h4 id={`ka-column-${column.id}`}>{column.title}</h4>
@@ -203,7 +304,22 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
             </header>
             <div className="ka-column__cards">
               {column.orders.length ? column.orders.map((order) => (
-                <WorkOrderKanbanCard key={order.id} workOrder={order} currentUser={currentUser} staffDirectory={staffDirectory} onOpenOrder={onOpenOrder} />
+                <WorkOrderKanbanCard
+                  key={order.id}
+                  workOrder={order}
+                  currentUser={currentUser}
+                  staffDirectory={staffDirectory}
+                  canMoveStatus={canMoveStatus}
+                  isDragging={draggedOrderId === order.id}
+                  isMoving={movingOrderId === order.id}
+                  isStamped={stampedOrderId === order.id}
+                  onDragStart={(nextOrder) => setDraggedOrderId(nextOrder.id)}
+                  onDragEnd={() => {
+                    setDraggedOrderId(null)
+                    setDropTargetStatus(null)
+                  }}
+                  onOpenOrder={onOpenOrder}
+                />
               )) : <div className="ka-column__empty">Tidak ada WO.</div>}
             </div>
           </section>
