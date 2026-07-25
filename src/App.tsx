@@ -7,9 +7,9 @@ import { LivePeopleStation } from './components/LivePeopleStation'
 import { AssignmentBoard } from './components/deploy/AssignmentBoard'
 import { WorkOrderKanbanBoard } from './components/kanban/WorkOrderKanbanBoard'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
-import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, recordLiveQcDecision, recordLiveWorkOrderStepOutput, resolveLivePendingRework, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
+import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, moveLiveWorkOrderKanbanStatus, recordLiveQcDecision, recordLiveWorkOrderStepOutput, resolveLivePendingRework, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
-import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderType } from './types/workOrder'
+import type { ArtworkApprovalStatus, DefectCategory, Priority, ProcessStep, QualityEvidence, Role, StaffDirectoryMember, Station, TeamMember, WorkOrder, WorkOrderHistoryItem, WorkOrderReferenceImage, WorkOrderShortfall, WorkOrderStatus, WorkOrderType } from './types/workOrder'
 import {
   artworkApprovalLabels,
   defectCategoryLabels,
@@ -525,6 +525,33 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     setSelectedId(order.id)
   }
 
+  const moveKanbanWorkOrderStatus = async (order: WorkOrder, targetStatus: WorkOrderStatus) => {
+    if (!hasFullWorkOrderAccess(currentUser)) {
+      showToast('Hanya Admin, PPIC, atau Manager yang boleh memindahkan WO dari papan kanban.')
+      return false
+    }
+
+    if (targetStatus === 'closed') {
+      showToast('Gunakan tombol Close WO untuk menutup WO secara resmi.')
+      return false
+    }
+
+    const previousOrders = workOrders
+    const optimisticOrder: WorkOrder = { ...order, status: targetStatus }
+    setWorkOrders((current) => replaceWorkOrder(current, optimisticOrder))
+
+    try {
+      await moveLiveWorkOrderKanbanStatus({ workOrderId: order.id, status: targetStatus })
+      await reloadWorkOrders()
+      showToast(`${order.code} dipindahkan ke ${statusLabels[targetStatus]}.`)
+      return true
+    } catch (error) {
+      setWorkOrders(previousOrders)
+      showToast(error instanceof Error ? error.message : 'Status WO gagal dipindahkan.')
+      return false
+    }
+  }
+
   const openModalFromWorkOrderDetail = (nextModal: Exclude<ModalState, null>) => {
     setSelectedId(null)
     setModal(nextModal)
@@ -794,7 +821,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                   <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar</button>
                 </div>
               </div>
-              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={filteredOrders} currentUser={currentUser} staffDirectory={staffDirectory} onOpenOrder={openOrder} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
+              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={filteredOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
                   const activeStep = order.steps.find((step) => deriveStepStatus(order, step) === 'in_progress')
