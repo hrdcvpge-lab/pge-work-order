@@ -1,6 +1,5 @@
 import type { ProcessStep, Role, WorkOrder, WorkOrderShortfall } from '../types/workOrder'
 import {
-  deriveOrderStatus,
   deriveStepStatus,
   getArtworkReadiness,
   getCurrentProcess,
@@ -61,7 +60,9 @@ const detailAction = (title: string, note: string): WorkOrderCurrentAction => ({
 })
 
 export function getWorkOrderCurrentAction(workOrder: WorkOrder, role: Role): WorkOrderCurrentAction {
-  const status = deriveOrderStatus(workOrder)
+  // MVP safety: use the stored database WO status for terminal actions.
+  // Progress-derived fulfillment must not make Kanban show Close WO too early.
+  const status = workOrder.status
   const summary = getShortfallSummary(workOrder)
 
   if (workOrder.isArchived) {
