@@ -6856,3 +6856,106 @@ body {
   color: #756f65;
   font-size: 12px;
 }
+
+/* v0.7.1 Kanban MVP read-only stabilization */
+.ka-board-shell--readonly::before {
+  content: none;
+}
+
+.ka-readonly-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 4px 12px;
+  padding: 11px 13px;
+  border: 1px solid rgba(169, 118, 44, 0.26);
+  border-radius: 14px;
+  background: rgba(255, 248, 232, 0.9);
+  color: #634819;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ka-readonly-banner svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.ka-readonly-banner strong {
+  display: block;
+  color: #4b3410;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.ka-column--empty-state {
+  min-height: 330px;
+}
+
+.ka-column--empty-state .ka-column__cards {
+  min-height: 210px;
+}
+
+.ka-docket--readonly {
+  cursor: pointer;
+}
+
+.ka-docket--readonly:hover,
+.ka-docket--readonly:focus-visible {
+  transform: translateY(-1px);
+}
+
+.ka-docket--review {
+  border-top: 4px solid var(--ka-thread-gold);
+}
+
+.ka-pill--review {
+  background: #fff7dc;
+  border-color: #e7cf87;
+  color: #725411;
+}
+
+.ka-legend-dot--review {
+  background: var(--ka-thread-gold);
+}
+
+.ka-docket__closed-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ka-qc-green);
+  font-size: 12px;
+  font-weight: 900;
+  min-width: 0;
+}
+
+.ka-docket__closed-note svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.ka-docket__closed-note span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Disable old drag affordances after MVP read-only rollback. */
+.ka-docket__drag-handle,
+.ka-docket__stamp,
+.ka-pill--drag {
+  display: none !important;
+}
+
+.ka-column--droppable .ka-column__cards,
+.ka-column--over .ka-column__cards {
+  outline: none;
+  background: transparent;
+}
+
+.ka-board-shell--readonly .ka-column__cards {
+  outline: none;
+}
