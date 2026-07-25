@@ -6,6 +6,7 @@ import { WorkOrderDrawer } from './components/WorkOrderDrawer'
 import { LivePeopleStation } from './components/LivePeopleStation'
 import { AssignmentBoard } from './components/deploy/AssignmentBoard'
 import { WorkOrderKanbanBoard } from './components/kanban/WorkOrderKanbanBoard'
+import { getWorkOrderCurrentAction, type WorkOrderCurrentAction } from './utils/workOrderActions'
 import { routeTemplates, teamMembers, workAreas } from './data/mockData'
 import { archiveLiveWorkOrder, closeLiveWorkOrder, createLiveDraftWorkOrder, deleteLiveDraftWorkOrder, fetchLiveWorkOrders, moveLiveWorkOrderKanbanStatus, recordLiveQcDecision, recordLiveWorkOrderStepOutput, resolveLivePendingRework, scheduleLiveWorkOrder, startLiveWorkOrderStep } from './lib/liveWorkOrders'
 import { fetchLiveStaffDirectory } from './lib/livePeopleDirectory'
@@ -557,6 +558,55 @@ export default function App({ currentUser, onSignOut }: AppProps) {
     setModal(nextModal)
   }
 
+  const openKanbanAction = (order: WorkOrder, action: WorkOrderCurrentAction = getWorkOrderCurrentAction(order, currentUser.role)) => {
+    const liveOrder = workOrders.find((workOrder) => workOrder.id === order.id) || order
+    const liveAction = getWorkOrderCurrentAction(liveOrder, currentUser.role)
+    const selectedAction = action.kind === liveAction.kind ? liveAction : action
+
+    if (!canViewWorkOrder(currentUser, liveOrder)) {
+      showToast('WO ini tidak ditugaskan kepada akun Anda.')
+      return
+    }
+
+    switch (selectedAction.kind) {
+      case 'schedule':
+        openModalFromWorkOrderDetail({ type: 'schedule', workOrder: liveOrder })
+        return
+      case 'start_step':
+        if (selectedAction.step) openModalFromWorkOrderDetail({ type: 'confirm-start', workOrder: liveOrder, step: selectedAction.step })
+        else openOrder(liveOrder)
+        return
+      case 'log_result':
+        if (selectedAction.step) openModalFromWorkOrderDetail({ type: 'log-result', workOrder: liveOrder, step: selectedAction.step })
+        else openOrder(liveOrder)
+        return
+      case 'qc_decision':
+        if (selectedAction.step) openModalFromWorkOrderDetail({ type: 'qc', workOrder: liveOrder, step: selectedAction.step })
+        else openOrder(liveOrder)
+        return
+      case 'resolve_rework':
+        openModalFromWorkOrderDetail({ type: 'resolve-rework', workOrder: liveOrder })
+        return
+      case 'shortfall_decision':
+        if (selectedAction.shortfall) openModalFromWorkOrderDetail({ type: 'shortfall-action', workOrder: liveOrder, shortfall: selectedAction.shortfall })
+        else openOrder(liveOrder)
+        return
+      case 'review_shortfall':
+        if (selectedAction.shortfall) openModalFromWorkOrderDetail({ type: 'review-shortfall', workOrder: liveOrder, shortfall: selectedAction.shortfall })
+        else openOrder(liveOrder)
+        return
+      case 'close_order':
+        openModalFromWorkOrderDetail({ type: 'confirm-close', workOrder: liveOrder })
+        return
+      case 'blocked':
+        showToast(selectedAction.note)
+        openOrder(liveOrder)
+        return
+      default:
+        openOrder(liveOrder)
+    }
+  }
+
   const isFinishedForNotice = (order: WorkOrder | null | undefined): order is WorkOrder => {
     if (!order) return false
     const status = deriveOrderStatus(order)
@@ -821,7 +871,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                   <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar</button>
                 </div>
               </div>
-              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={filteredOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
+              {orderViewMode === 'board' ? <WorkOrderKanbanBoard workOrders={filteredOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} onOpenAction={openKanbanAction} /> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>
                 {filteredOrders.map((order) => {
                   const current = getCurrentProcess(order)
                   const activeStep = order.steps.find((step) => deriveStepStatus(order, step) === 'in_progress')
