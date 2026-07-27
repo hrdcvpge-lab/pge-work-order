@@ -372,7 +372,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | WorkOrder['status']>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all')
-  const [orderListTab, setOrderListTab] = useState<'active' | 'draft' | 'running' | 'done' | 'all'>('active')
+  const [orderListTab, setOrderListTab] = useState<'active' | 'draft' | 'running' | 'done' | 'closed' | 'all'>('active')
   const [orderViewMode, setOrderViewMode] = useState<'board' | 'list'>(() => window.localStorage.getItem('pge-mvp-order-view-mode') === 'board' ? 'board' : 'list')
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
@@ -467,18 +467,34 @@ export default function App({ currentUser, onSignOut }: AppProps) {
       const matchesSearch = !needle || `${order.code} ${order.product} ${order.source}`.toLocaleLowerCase('id-ID').includes(needle)
       const matchesStatus = statusFilter === 'all' || status === statusFilter
       const matchesPriority = priorityFilter === 'all' || order.priority === priorityFilter
+      const nonArchived = !order.isArchived
       const matchesTab = orderListTab === 'all'
-        ? true
+        ? nonArchived
         : orderListTab === 'active'
-          ? !order.isArchived && !['done', 'closed', 'cancelled'].includes(status)
+          ? nonArchived && ['scheduled', 'in_progress', 'qc', 'packing'].includes(status)
           : orderListTab === 'draft'
-            ? status === 'draft'
+            ? nonArchived && status === 'draft'
             : orderListTab === 'running'
-              ? ['scheduled', 'in_progress', 'qc', 'packing'].includes(status)
-              : ['done', 'closed'].includes(status) && !order.isArchived
+              ? nonArchived && ['in_progress', 'qc', 'packing'].includes(status)
+              : orderListTab === 'done'
+                ? nonArchived && status === 'done'
+                : nonArchived && status === 'closed'
       return matchesSearch && matchesStatus && matchesPriority && matchesTab
     })
   }, [orderListTab, priorityFilter, search, scopedOrders, statusFilter])
+
+  const orderTabCounts = useMemo(() => {
+    const visibleOrders = scopedOrders.filter((order) => !order.isArchived)
+    const byStatus = (statuses: WorkOrder['status'][]) => visibleOrders.filter((order) => statuses.includes(deriveOrderStatus(order))).length
+    return {
+      active: byStatus(['scheduled', 'in_progress', 'qc', 'packing']),
+      draft: byStatus(['draft']),
+      running: byStatus(['in_progress', 'qc', 'packing']),
+      done: byStatus(['done']),
+      closed: byStatus(['closed']),
+      all: visibleOrders.length,
+    }
+  }, [scopedOrders])
 
   const boardOrders = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase('id-ID')
@@ -870,7 +886,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
                       ? 'Beta: papan untuk overview dan koreksi status terbatas. Eksekusi proses, qty, QC, Close, dan Archive tetap lewat modal WO.'
                       : 'Beta mode baca: buka kartu untuk melihat detail. Eksekusi utama tetap melalui modal WO.'
                     : hasFullWorkOrderAccess(currentUser)
-                      ? 'Default menampilkan WO aktif. WO selesai dipindahkan ke tab Selesai atau Laporan.'
+                      ? 'Daftar MVP dipisah tegas: Aktif untuk WO berjalan, Selesai untuk status done menunggu close, Ditutup untuk WO closed.'
                       : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span>
                 </div>
                 <div className="orders-header-actions">
@@ -883,12 +899,13 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               </header>
               {orderViewMode === 'list' ? <div className="wo-list-tabs" role="tablist" aria-label="Filter daftar Work Order">
                 {[
-                  { id: 'active', label: 'Aktif' },
-                  { id: 'draft', label: 'Draft' },
-                  { id: 'running', label: 'Berjalan' },
-                  { id: 'done', label: 'Selesai' },
-                  { id: 'all', label: 'Semua' },
-                ].map((item) => <button key={item.id} type="button" className={orderListTab === item.id ? 'is-active' : ''} onClick={() => setOrderListTab(item.id as typeof orderListTab)}>{item.label}</button>)}
+                  { id: 'active', label: 'Aktif', helper: 'Terjadwal + berjalan' },
+                  { id: 'draft', label: 'Draft', helper: 'Belum deploy' },
+                  { id: 'running', label: 'Berjalan', helper: 'Sedang proses' },
+                  { id: 'done', label: 'Selesai', helper: 'Menunggu close PPIC' },
+                  { id: 'closed', label: 'Ditutup', helper: 'Closed final' },
+                  { id: 'all', label: 'Semua', helper: 'Non-arsip' },
+                ].map((item) => <button key={item.id} type="button" className={orderListTab === item.id ? 'is-active' : ''} title={item.helper} onClick={() => setOrderListTab(item.id as typeof orderListTab)}><span>{item.label}</span><b>{orderTabCounts[item.id as keyof typeof orderTabCounts]}</b></button>)}
               </div> : null}
               <div className={`filter-row filter-row--orders ${orderViewMode === 'board' ? 'filter-row--board' : ''}`}>
                 <label className="search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari kode WO, produk, atau sumber order" /></label>

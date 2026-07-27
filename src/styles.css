@@ -6959,3 +6959,39 @@ body {
 .ka-board-shell--readonly .ka-column__cards {
   outline: none;
 }
+
+/* v0.7.3 — MVP Work Order status clarity */
+.wo-list-tabs {
+  align-items: center;
+}
+
+.wo-list-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+}
+
+.wo-list-tabs button b {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3efe7;
+  color: #5e0f10;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.wo-list-tabs button.is-active b {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.wo-table__row--terminal .wo-progress-cell small,
+.wo-table__row--terminal .wo-status-cell small {
+  color: #6b7280;
+}
