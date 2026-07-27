@@ -245,12 +245,9 @@ type KanbanColumnViewProps = {
 }
 
 function KanbanColumnView({ column, currentUser, staffDirectory, onOpenOrder, onOpenAction }: KanbanColumnViewProps) {
-  const isClosedColumn = column.id === 'closed'
-  const previewOrders = isClosedColumn ? column.orders.slice(0, 4) : column.orders
-
   return (
     <section
-      className={`ka-column${column.orders.length ? '' : ' ka-column--empty-state'}${isClosedColumn ? ' ka-column--closed-summary' : ''}`}
+      className={`ka-column${column.orders.length ? '' : ' ka-column--empty-state'}`}
       key={column.id}
       aria-labelledby={`ka-column-${column.id}`}
     >
@@ -263,54 +260,37 @@ function KanbanColumnView({ column, currentUser, staffDirectory, onOpenOrder, on
         <strong>{formatNumber(column.orders.length)}</strong>
       </header>
 
-      {isClosedColumn ? (
-        <div className="ka-column__closed-panel">
-          <div className="ka-closed-summary-card">
-            <b>{formatNumber(column.orders.length)} WO ditutup</b>
-            <span>{formatNumber(column.plannedQty)} unit sudah terkunci. Detail histori tetap dibuka dari Laporan atau tab Ditutup.</span>
-          </div>
-          {previewOrders.length ? (
-            <div className="ka-closed-list">
-              {previewOrders.map((order) => (
-                <button type="button" key={order.id} onClick={() => onOpenOrder(order)}>
-                  <strong>{order.code}</strong>
-                  <span>{order.product}</span>
-                  <small>{formatNumber(order.qty)} unit · Ditutup</small>
-                </button>
-              ))}
-            </div>
-          ) : <div className="ka-column__empty">Belum ada WO ditutup.</div>}
-          {column.orders.length > previewOrders.length ? (
-            <small className="ka-closed-more">+{formatNumber(column.orders.length - previewOrders.length)} WO lain. Gunakan tab Ditutup / Laporan untuk histori lengkap.</small>
-          ) : null}
-        </div>
-      ) : (
-        <div className="ka-column__cards">
-          {column.orders.length ? column.orders.map((order) => (
-            <Docket
-              key={order.id}
-              workOrder={order}
-              currentUser={currentUser}
-              staffDirectory={staffDirectory}
-              onOpenOrder={onOpenOrder}
-              onOpenAction={onOpenAction}
-            />
-          )) : <div className="ka-column__empty">Tidak ada WO.</div>}
-        </div>
-      )}
+      <div className="ka-column__cards">
+        {column.orders.length ? column.orders.map((order) => (
+          <Docket
+            key={order.id}
+            workOrder={order}
+            currentUser={currentUser}
+            staffDirectory={staffDirectory}
+            onOpenOrder={onOpenOrder}
+            onOpenAction={onOpenAction}
+          />
+        )) : <div className="ka-column__empty">Tidak ada WO.</div>}
+      </div>
     </section>
   )
 }
 
 export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, canMoveStatus, onOpenOrder, onOpenAction }: WorkOrderKanbanBoardProps) {
+  const boardWorkOrders = useMemo(
+    () => workOrders.filter((order) => order.status !== 'closed' && order.status !== 'cancelled'),
+    [workOrders],
+  )
+
   const grouped = useMemo(() => KANBAN_COLUMNS.map((column) => {
-    const orders = workOrders.filter((order) => order.status === column.id)
+    const orders = boardWorkOrders.filter((order) => order.status === column.id)
     const plannedQty = orders.reduce((sum, order) => sum + order.qty, 0)
     return { ...column, orders, plannedQty }
-  }), [workOrders])
+  }), [boardWorkOrders])
 
-  const cancelledOrders = useMemo(() => workOrders.filter((order) => order.status === 'cancelled'), [workOrders])
-  const reviewCount = useMemo(() => workOrders.filter(needsStatusReview).length, [workOrders])
+  const hiddenClosedCount = useMemo(() => workOrders.filter((order) => order.status === 'closed').length, [workOrders])
+  const hiddenCancelledCount = useMemo(() => workOrders.filter((order) => order.status === 'cancelled').length, [workOrders])
+  const reviewCount = useMemo(() => boardWorkOrders.filter(needsStatusReview).length, [boardWorkOrders])
 
   return (
     <section className="ka-board-shell ka-board-shell--readonly" aria-label="Papan Work Order Kartu Antrian">
@@ -342,13 +322,16 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
         ))}
       </div>
 
-      {cancelledOrders.length ? (
-        <details className="ka-cancelled-lane">
-          <summary>{formatNumber(cancelledOrders.length)} WO dibatalkan</summary>
-          <div>
-            {cancelledOrders.map((order) => <button type="button" key={order.id} onClick={() => onOpenOrder(order)}>{order.code} · {order.product}</button>)}
-          </div>
-        </details>
+      {(hiddenClosedCount || hiddenCancelledCount) ? (
+        <div className="ka-hidden-history-note">
+          <Icon name="archive" />
+          <span>
+            {hiddenClosedCount ? `${formatNumber(hiddenClosedCount)} WO ditutup` : null}
+            {hiddenClosedCount && hiddenCancelledCount ? ' · ' : null}
+            {hiddenCancelledCount ? `${formatNumber(hiddenCancelledCount)} WO dibatalkan` : null}
+            {' '}tidak ditampilkan di papan monitoring. Gunakan tab Ditutup atau Laporan untuk histori.
+          </span>
+        </div>
       ) : null}
     </section>
   )
