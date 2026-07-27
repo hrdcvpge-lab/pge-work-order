@@ -148,6 +148,14 @@ function hasFullWorkOrderAccess(currentUser: TeamMember) {
   return ['admin', 'ppic', 'manager'].includes(currentUser.role)
 }
 
+function getDefaultViewForRole(role: Role): View {
+  return ['admin', 'ppic', 'manager'].includes(role) ? 'dashboard' : 'station'
+}
+
+function getPostProductionActionView(role: Role): View {
+  return ['admin', 'ppic', 'manager'].includes(role) ? 'orders' : 'station'
+}
+
 /**
  * Floor users may open and act on a process only when Admin / PPIC assigned
  * that exact process to their account. Station membership alone is not enough.
@@ -366,14 +374,14 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryMember[]>([])
   const [staffDirectoryError, setStaffDirectoryError] = useState('')
-  const [view, setView] = useState<View>('dashboard')
+  const [view, setView] = useState<View>(() => getDefaultViewForRole(currentUser.role))
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | WorkOrder['status']>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all')
   const [orderListTab, setOrderListTab] = useState<'active' | 'draft' | 'running' | 'done' | 'closed' | 'all'>('active')
-  const [orderViewMode, setOrderViewMode] = useState<'board' | 'list'>(() => window.localStorage.getItem('pge-mvp-order-view-mode') === 'board' ? 'board' : 'list')
+  const [orderViewMode, setOrderViewMode] = useState<'board' | 'list'>(() => window.localStorage.getItem('pge-operational-order-view-mode') === 'board' ? 'board' : 'list')
   const [clock, setClock] = useState(() => Date.now())
   const [toast, setToast] = useState('')
   const [isLoadingWorkOrders, setIsLoadingWorkOrders] = useState(true)
@@ -443,8 +451,14 @@ export default function App({ currentUser, onSignOut }: AppProps) {
   }, [modal?.type, currentUser.id])
 
   useEffect(() => {
-    window.localStorage.setItem('pge-mvp-order-view-mode', orderViewMode)
+    window.localStorage.setItem('pge-operational-order-view-mode', orderViewMode)
   }, [orderViewMode])
+
+  useEffect(() => {
+    if (!hasFullWorkOrderAccess(currentUser) && view === 'dashboard') {
+      setView('station')
+    }
+  }, [currentUser.id, currentUser.role, view])
 
   const reloadWorkOrders = async () => {
     const liveOrders = await fetchLiveWorkOrders()
@@ -803,8 +817,8 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         </nav>
 
         <div className="sidebar__note">
-          <b>Fase frontend</b>
-          <span>Login, employee master, draft WO, deploy, dan progress utama sudah tersambung Supabase.</span>
+          <b>Mode operasional</b>
+          <span>Daftar dan modal WO menjadi jalur resmi eksekusi produksi; Papan Monitoring hanya untuk melihat posisi.</span>
         </div>
       </aside>
 
@@ -816,7 +830,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             <p className="topbar__subtitle">{view === 'dashboard'
               ? 'Prioritaskan pesanan customer, lihat langkah yang benar-benar siap, dan tindak blocker sebelum pekerjaan hilang di tengah proses.'
               : view === 'station'
-                ? 'Tampilan mobile-first untuk pekerjaan yang memang ditugaskan kepada pengguna aktif.'
+                ? 'Meja kerja operator: hanya proses yang ditugaskan dan aksi yang perlu dilakukan sekarang.'
                 : 'Login memakai akun Supabase. Draft, jadwal, dan progress utama sudah tersambung ke data produksi.'}</p>
           </div>
           <div className="topbar__actions">
@@ -1132,7 +1146,6 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         onManageArtwork={() => openModalFromWorkOrderDetail({ type: 'manage-artwork', workOrder: selectedWorkOrder })}
         onResolveShortfall={(shortfall) => openModalFromWorkOrderDetail({ type: 'shortfall-action', workOrder: selectedWorkOrder, shortfall })}
         onReviewShortfall={(shortfall) => openModalFromWorkOrderDetail({ type: 'review-shortfall', workOrder: selectedWorkOrder, shortfall })}
-        onResolveRework={() => openModalFromWorkOrderDetail({ type: 'resolve-rework', workOrder: selectedWorkOrder })}
       /> : null}
 
       {modal?.type === 'create' ? <CreateWorkOrderModal
@@ -1264,9 +1277,9 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
             if (finishedOrder) {
               setSelectedId(null)
-              setView('dashboard')
+              setView(getPostProductionActionView(currentUser.role))
               setModal({ type: 'finished-notice', workOrder: finishedOrder })
-              showToast(`${finishedOrder.code} selesai. Kembali ke dashboard.`)
+              showToast(`${finishedOrder.code} selesai. Kembali ke halaman kerja.`)
               return
             }
 
@@ -1328,9 +1341,9 @@ export default function App({ currentUser, onSignOut }: AppProps) {
 
             if (finishedOrder) {
               setSelectedId(null)
-              setView('dashboard')
+              setView(getPostProductionActionView(currentUser.role))
               setModal({ type: 'finished-notice', workOrder: finishedOrder })
-              showToast(`${finishedOrder.code} selesai. Kembali ke dashboard.`)
+              showToast(`${finishedOrder.code} selesai. Kembali ke halaman kerja.`)
               return
             }
 
@@ -1370,7 +1383,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             const refreshedOrder = liveOrders.find((liveOrder) => liveOrder.id === modal.workOrder.id)
             if (isFinishedForNotice(refreshedOrder)) {
               setSelectedId(null)
-              setView('dashboard')
+              setView(getPostProductionActionView(currentUser.role))
               setModal({ type: 'finished-notice', workOrder: refreshedOrder })
               showToast(`${refreshedOrder.code} selesai. Pending rework sudah diselesaikan.`)
               return
@@ -1506,7 +1519,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
         onConfirm={() => {
           setModal(null)
           setSelectedId(null)
-          setView('dashboard')
+          setView(getPostProductionActionView(currentUser.role))
         }}
       /> : null}
 
@@ -2099,7 +2112,7 @@ function StartProcessModal({ workOrder, step, currentUser, staffDirectory, onClo
 
 function FinishedWorkOrderModal({ workOrder, onConfirm }: { workOrder: WorkOrder; onConfirm: () => void }) {
   const finalLabel = workOrder.type === 'mts' ? 'Masuk Gudang / Stok tersedia' : 'Packing selesai / Siap kirim'
-  return <Modal title="Work Order selesai" subtitle="Semua proses utama sudah tercatat selesai. Sistem mengembalikan Anda ke dashboard agar monitoring berikutnya lebih mudah." onClose={onConfirm}>
+  return <Modal title="Work Order selesai" subtitle="Semua proses utama sudah tercatat selesai. Buka daftar operasional untuk Close PPIC atau lanjutkan pekerjaan berikutnya di Stasiun Saya." onClose={onConfirm}>
     <div className="wo-finished-modal">
       <div className="wo-finished-modal__icon"><Icon name="check" /></div>
       <div>
@@ -2114,7 +2127,7 @@ function FinishedWorkOrderModal({ workOrder, onConfirm }: { workOrder: WorkOrder
       <div><span>Status</span><b>Selesai</b></div>
     </div>
     <footer className="modal-card__footer">
-      <button type="button" className="button button--primary" onClick={onConfirm}>Kembali ke dashboard</button>
+      <button type="button" className="button button--primary" onClick={onConfirm}>Kembali ke halaman kerja</button>
     </footer>
   </Modal>
 }
