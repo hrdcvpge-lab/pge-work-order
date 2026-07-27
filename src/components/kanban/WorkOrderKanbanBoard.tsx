@@ -46,7 +46,7 @@ const KANBAN_COLUMNS: KanbanColumn[] = [
   { id: 'qc', title: statusLabels.qc, note: 'Menunggu / proses QC' },
   { id: 'packing', title: 'Packing / Gudang', note: 'Finalisasi akhir' },
   { id: 'done', title: statusLabels.done, note: 'Menunggu close PPIC' },
-  { id: 'closed', title: statusLabels.closed, note: 'Sudah ditutup' },
+  { id: 'closed', title: statusLabels.closed, note: 'Arsip produksi terkunci' },
 ]
 
 const TERMINAL_STATUSES: WorkOrderStatus[] = ['done', 'closed', 'cancelled']
@@ -246,9 +246,12 @@ type KanbanColumnViewProps = {
 }
 
 function KanbanColumnView({ column, currentUser, staffDirectory, onOpenOrder, onOpenAction }: KanbanColumnViewProps) {
+  const isClosedColumn = column.id === 'closed'
+  const previewOrders = isClosedColumn ? column.orders.slice(0, 4) : column.orders
+
   return (
     <section
-      className={`ka-column${column.orders.length ? '' : ' ka-column--empty-state'}`}
+      className={`ka-column${column.orders.length ? '' : ' ka-column--empty-state'}${isClosedColumn ? ' ka-column--closed-summary' : ''}`}
       key={column.id}
       aria-labelledby={`ka-column-${column.id}`}
     >
@@ -260,18 +263,42 @@ function KanbanColumnView({ column, currentUser, staffDirectory, onOpenOrder, on
         </div>
         <strong>{formatNumber(column.orders.length)}</strong>
       </header>
-      <div className="ka-column__cards">
-        {column.orders.length ? column.orders.map((order) => (
-          <Docket
-            key={order.id}
-            workOrder={order}
-            currentUser={currentUser}
-            staffDirectory={staffDirectory}
-            onOpenOrder={onOpenOrder}
-            onOpenAction={onOpenAction}
-          />
-        )) : <div className="ka-column__empty">Tidak ada WO.</div>}
-      </div>
+
+      {isClosedColumn ? (
+        <div className="ka-column__closed-panel">
+          <div className="ka-closed-summary-card">
+            <b>{formatNumber(column.orders.length)} WO ditutup</b>
+            <span>{formatNumber(column.plannedQty)} unit sudah terkunci. Detail histori tetap dibuka dari Laporan atau tab Ditutup.</span>
+          </div>
+          {previewOrders.length ? (
+            <div className="ka-closed-list">
+              {previewOrders.map((order) => (
+                <button type="button" key={order.id} onClick={() => onOpenOrder(order)}>
+                  <strong>{order.code}</strong>
+                  <span>{order.product}</span>
+                  <small>{formatNumber(order.qty)} unit · Ditutup</small>
+                </button>
+              ))}
+            </div>
+          ) : <div className="ka-column__empty">Belum ada WO ditutup.</div>}
+          {column.orders.length > previewOrders.length ? (
+            <small className="ka-closed-more">+{formatNumber(column.orders.length - previewOrders.length)} WO lain. Gunakan tab Ditutup / Laporan untuk histori lengkap.</small>
+          ) : null}
+        </div>
+      ) : (
+        <div className="ka-column__cards">
+          {column.orders.length ? column.orders.map((order) => (
+            <Docket
+              key={order.id}
+              workOrder={order}
+              currentUser={currentUser}
+              staffDirectory={staffDirectory}
+              onOpenOrder={onOpenOrder}
+              onOpenAction={onOpenAction}
+            />
+          )) : <div className="ka-column__empty">Tidak ada WO.</div>}
+        </div>
+      )}
     </section>
   )
 }
@@ -291,8 +318,8 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
       <div className="ka-readonly-banner">
         <Icon name="warning" />
         <div>
-          <strong>Papan Beta hanya untuk monitoring.</strong>
-          <span> Drag status dinonaktifkan untuk MVP karena eksekusi resmi tetap melalui detail/modal WO. {canMoveStatus ? 'Admin/PPIC tetap bisa membuka detail untuk koreksi status.' : 'Role ini hanya dapat melihat papan.'}</span>
+          <strong>Papan Monitoring hanya untuk melihat posisi WO.</strong>
+          <span> Drag status dinonaktifkan karena eksekusi resmi tetap melalui detail/modal WO. {canMoveStatus ? 'Admin/PPIC tetap bisa membuka detail untuk koreksi status.' : 'Role ini hanya dapat melihat papan.'}</span>
         </div>
       </div>
 
