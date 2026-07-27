@@ -7090,3 +7090,61 @@ body {
 .ka-readonly-banner strong {
   letter-spacing: 0;
 }
+
+
+/* v0.7.6 — Kanban monitoring cleanup: remove closed archive from board and remove horizontal slider. */
+.ka-board {
+  grid-auto-flow: row !important;
+  grid-auto-columns: unset !important;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)) !important;
+  overflow-x: visible !important;
+  padding: 2px !important;
+  scroll-snap-type: none !important;
+}
+
+.ka-board::-webkit-scrollbar {
+  display: none;
+}
+
+.ka-column {
+  min-width: 0;
+  scroll-snap-align: unset;
+}
+
+.ka-board-shell {
+  overflow-x: hidden;
+}
+
+.ka-hidden-history-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 4px 2px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(117, 111, 101, 0.28);
+  border-radius: 13px;
+  background: rgba(255, 250, 241, 0.64);
+  color: var(--ka-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ka-hidden-history-note svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--ka-burgundy);
+}
+
+@media (max-width: 980px) {
+  .ka-board {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .ka-board {
+    grid-template-columns: 1fr !important;
+  }
+}
