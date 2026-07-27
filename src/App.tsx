@@ -950,35 +950,141 @@ export default function App({ currentUser, onSignOut }: AppProps) {
           </section>
         ) : null}
 
-        {view === 'station' ? (
-          <section className="view-content station-view">
-            <div className="station-hero">
-              <div><p className="eyebrow">Tampilan operator</p><h2>{currentUser.name}</h2><span>{roleLabels[currentUser.role]} · {currentUser.stations.length ? currentUser.stations.map((station) => stationLabels[station]).join(', ') : 'Akses sesuai proses yang ditugaskan'}</span></div>
-              <div className="station-hero__note"><Icon name="package" /><span>Hanya langkah yang ditugaskan ke akun ini yang muncul di sini.</span></div>
+        {view === 'station' ? (() => {
+          type StationTask = (typeof stationTasks)[number]
+          type StationBucket = 'inProgress' | 'ready' | 'hold' | 'waiting'
+
+          const stationBucketLabels: Record<StationBucket, { title: string; subtitle: string; icon: Parameters<typeof Icon>[0]['name'] }> = {
+            inProgress: { title: 'Sedang dikerjakan', subtitle: 'Timer berjalan atau proses perlu dicatat hasilnya.', icon: 'play' },
+            ready: { title: 'Perlu dimulai', subtitle: 'Input sudah tersedia dan pekerjaan bisa dimulai.', icon: 'check' },
+            hold: { title: 'HOLD', subtitle: 'Pekerjaan tertahan dan perlu keputusan.', icon: 'warning' },
+            waiting: { title: 'Menunggu input sebelumnya', subtitle: 'Belum bisa dikerjakan karena hasil proses sebelumnya belum cukup.', icon: 'clock' },
+          }
+
+          const getStationBucket = (order: WorkOrder, step: ProcessStep): StationBucket => {
+            const status = deriveStepStatus(order, step)
+            if (status === 'in_progress') return 'inProgress'
+            if (status === 'ready') return 'ready'
+            if (status === 'hold') return 'hold'
+            return 'waiting'
+          }
+
+          const groupedTasks = stationTasks.reduce<Record<StationBucket, StationTask[]>>((groups, task) => {
+            groups[getStationBucket(task.order, task.step)].push(task)
+            return groups
+          }, { inProgress: [], ready: [], hold: [], waiting: [] })
+
+          const primaryQueue = [...groupedTasks.inProgress, ...groupedTasks.ready, ...groupedTasks.hold, ...groupedTasks.waiting]
+          const stationTotalTarget = stationTasks.reduce((sum, { step }) => sum + step.plannedQty, 0)
+          const stationTotalGood = stationTasks.reduce((sum, { step }) => sum + step.qtyGood, 0)
+
+          const renderStationAction = (order: WorkOrder, step: ProcessStep) => {
+            const status = deriveStepStatus(order, step)
+            const operationAllowed = canUseProcess(currentUser, step)
+            const isPrinting = step.station === 'printing'
+            const artworkReadiness = getArtworkReadiness(order)
+
+            if (!operationAllowed) return <button className="button button--secondary" onClick={() => openOrder(order)}>Buka detail</button>
+            if (status === 'ready') {
+              return <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => setModal({ type: 'confirm-start', workOrder: order, step })}><Icon name="play" /> {isPrinting ? (order.artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai proses'}</button>
+            }
+            if (status === 'in_progress') {
+              return step.station === 'qc'
+                ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button>
+                : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>
+            }
+            if (status === 'hold') return <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan proses</button>
+            return <button className="button button--secondary" onClick={() => openOrder(order)}>Buka detail</button>
+          }
+
+          const renderStationTaskCard = ({ order, step }: StationTask, index: number) => {
+            const status = deriveStepStatus(order, step)
+            const operationAllowed = canUseProcess(currentUser, step)
+            const isPrinting = step.station === 'printing'
+            const finalArtwork = getApprovedPrimaryArtwork(order)
+            const artworkReadiness = getArtworkReadiness(order)
+            const availableInput = getAvailableInputCap(order, step)
+            const remainingQty = Math.max(0, step.plannedQty - step.qtyGood)
+            const activeSeconds = getOrderActiveSeconds({ ...order, steps: [step] }, clock)
+
+            return <article key={step.id} className={`station-workbench-card station-workbench-card--station-${step.station} station-workbench-card--${status}`}>
+              <header className="station-workbench-card__header">
+                <div className="station-workbench-card__rank">{index + 1}</div>
+                <div className="station-workbench-card__title">
+                  <div><Badge kind="station" value={step.station} /><Badge kind="priority" value={order.priority} /><Badge kind="process" value={status} /></div>
+                  <h3>{step.name}</h3>
+                  <p><b>{order.code}</b> · {order.product}</p>
+                </div>
+                <div className="station-workbench-card__due">
+                  <span>Target selesai</span>
+                  <b className={isOverdue(order) ? 'text-danger' : ''}>{formatDate(order.dueDate)}</b>
+                </div>
+              </header>
+
+              {isPrinting && finalArtwork ? <section className="station-artwork-briefing station-artwork-briefing--compact">
+                <button type="button" className="station-artwork-briefing__preview" onClick={() => openOrder(order)}><img src={finalArtwork.dataUrl} alt={`${order.artworkApprovalRequired ? 'FINAL PRINT FILE' : 'Artwork reference'} ${finalArtwork.name}`} /></button>
+                <div><span><Icon name="check" /> {order.artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><h4>{finalArtwork.name}</h4><p>{finalArtwork.printNote || 'Buka detail WO untuk membaca instruksi cetak.'}</p></div>
+              </section> : null}
+
+              {isPrinting && order.artworkApprovalRequired && !finalArtwork ? <div className="station-artwork-blocked"><Icon name="warning" /><div><b>Printing diblokir</b><span>{artworkReadiness.reason}</span></div></div> : null}
+
+              <div className="station-workbench-card__metrics">
+                <span><small>Target proses</small><b>{formatNumber(step.plannedQty)}</b></span>
+                <span><small>Sisa</small><b>{formatNumber(remainingQty)}</b></span>
+                <span><small>Input tersedia</small><b>{Number.isFinite(availableInput) ? formatNumber(availableInput) : '—'}</b></span>
+                <span><small>Timer</small><b>{formatDuration(activeSeconds)}</b></span>
+              </div>
+
+              <div className="station-workbench-card__context">
+                <span>PIC: <b>{getDirectoryName(step.assignedUserId, staffDirectory, 'PIC belum ditentukan')}</b></span>
+                <span>Lapor ke: <b>{step.reportToUserId ? getDirectoryName(step.reportToUserId, staffDirectory) : 'Belum ditentukan'}</b></span>
+                <span>Area: <b>{step.location || defaultLocationForStation(step.station)}</b></span>
+              </div>
+
+              {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
+
+              <footer className="station-workbench-card__actions">
+                <button className="button button--secondary" onClick={() => openOrder(order)}>Buka WO</button>
+                {status === 'in_progress' && operationAllowed ? <button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button> : null}
+                {operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}
+                {renderStationAction(order, step)}
+              </footer>
+            </article>
+          }
+
+          return <section className="view-content station-view station-workbench">
+            <div className="station-hero station-hero--workbench">
+              <div><p className="eyebrow">Meja kerja stasiun</p><h2>{currentUser.name}</h2><span>{roleLabels[currentUser.role]} · {currentUser.stations.length ? currentUser.stations.map((station) => stationLabels[station]).join(', ') : 'Akses sesuai proses yang ditugaskan'}</span></div>
+              <div className="station-hero__note"><Icon name="package" /><span>Fokus pada pekerjaan yang ditugaskan. Buka detail hanya jika butuh histori, artwork, atau keputusan khusus.</span></div>
             </div>
-            <div className="station-task-list">
-              {stationTasks.length ? stationTasks.map(({ order, step }) => {
-                const status = deriveStepStatus(order, step)
-                const operationAllowed = canUseProcess(currentUser, step)
-                const isPrinting = step.station === 'printing'
-                const finalArtwork = getApprovedPrimaryArtwork(order)
-                const artworkReadiness = getArtworkReadiness(order)
-                return <article key={step.id} className={`station-task-card station-task-card--station-${step.station}`}>
-                  <header><div><Badge kind="station" value={step.station} /><Badge kind="priority" value={order.priority} /><span>{order.code}</span></div><Badge kind="process" value={status} /></header>
-                  <h3>{step.name}</h3><p>{order.product}</p>
-                  {isPrinting && finalArtwork ? <section className="station-artwork-briefing">
-                    <button type="button" className="station-artwork-briefing__preview" onClick={() => openOrder(order)}><img src={finalArtwork.dataUrl} alt={`${order.artworkApprovalRequired ? 'FINAL PRINT FILE' : 'Artwork reference'} ${finalArtwork.name}`} /></button>
-                    <div><span><Icon name="check" /> {order.artworkApprovalRequired ? `FINAL PRINT FILE · ${finalArtwork.version}` : `Artwork reference · ${finalArtwork.version} · opsional`}</span><h4>{finalArtwork.name}</h4><p>{finalArtwork.printNote || 'Buka detail WO untuk membaca instruksi cetak.'}</p><small>{order.artworkApprovalRequired ? (finalArtwork.approvedBy ? `Disetujui oleh ${finalArtwork.approvedBy}` : 'Disetujui untuk cetak') : 'File ini hanya referensi; Printing tidak dikunci oleh approval.'}</small></div>
-                  </section> : null}
-                  {isPrinting && order.artworkApprovalRequired && !finalArtwork ? <div className="station-artwork-blocked"><Icon name="warning" /><div><b>Printing diblokir</b><span>{artworkReadiness.reason}</span></div></div> : null}
-                  <div className="station-task-card__details"><span>Target <b>{formatNumber(step.plannedQty)}</b></span><span>Hasil baik <b>{formatNumber(step.qtyGood)}</b></span><span>Input proses <b>{Number.isFinite(getAvailableInputCap(order, step)) ? formatNumber(getAvailableInputCap(order, step)) : '—'}</b></span><span>Timer <b>{formatDuration(getOrderActiveSeconds({ ...order, steps: [step] }, clock))}</b></span></div>
-                  {step.holdReason ? <div className="hold-box"><Icon name="warning" /> {step.holdReason}</div> : null}
-                  <footer><button className="button button--secondary" onClick={() => openOrder(order)}>Lihat WO</button>{operationAllowed && status === 'ready' ? <button className="button button--primary" disabled={isPrinting && !artworkReadiness.ready} title={isPrinting && !artworkReadiness.ready ? artworkReadiness.reason : undefined} onClick={() => setModal({ type: 'confirm-start', workOrder: order, step })}><Icon name="play" /> {isPrinting ? (order.artworkApprovalRequired ? 'Review & mulai cetak' : 'Mulai cetak') : 'Mulai'}</button> : null}{operationAllowed && status === 'in_progress' ? <><button className="button button--secondary" onClick={() => pauseStep(order, step)}><Icon name="pause" /> Jeda</button>{step.station === 'qc' ? <button className="button button--primary" onClick={() => setModal({ type: 'qc', workOrder: order, step })}>Keputusan QC</button> : <button className="button button--primary" onClick={() => setModal({ type: 'log-result', workOrder: order, step })}>Catat hasil</button>}</> : null}{operationAllowed && ['ready', 'in_progress'].includes(status) ? <button className="button button--danger-soft" onClick={() => setModal({ type: 'hold', workOrder: order, step })}>HOLD</button> : null}{operationAllowed && status === 'hold' ? <button className="button button--success-soft" onClick={() => resumeStep(order, step)}>Lanjutkan</button> : null}</footer>
+
+            <div className="station-workbench-summary">
+              <article><span>Total tugas</span><b>{formatNumber(stationTasks.length)}</b><small>Belum selesai</small></article>
+              <article><span>Siap dimulai</span><b>{formatNumber(groupedTasks.ready.length)}</b><small>Input tersedia</small></article>
+              <article><span>Sedang dikerjakan</span><b>{formatNumber(groupedTasks.inProgress.length)}</b><small>Perlu catat hasil</small></article>
+              <article><span>Sisa target</span><b>{formatNumber(Math.max(0, stationTotalTarget - stationTotalGood))}</b><small>dari {formatNumber(stationTotalTarget)} unit</small></article>
+            </div>
+
+            {primaryQueue.length ? <div className="station-workbench-focus">
+              <div className="station-workbench-focus__label"><Icon name="arrow" /><span>Kerjakan berikutnya</span></div>
+              {renderStationTaskCard(primaryQueue[0], 0)}
+            </div> : null}
+
+            <div className="station-workbench-groups">
+              {(Object.entries(stationBucketLabels) as Array<[StationBucket, { title: string; subtitle: string; icon: Parameters<typeof Icon>[0]['name'] }]>).map(([bucket, label]) => {
+                const rows = groupedTasks[bucket]
+                return <article className={`station-workbench-group station-workbench-group--${bucket}`} key={bucket}>
+                  <header><div><Icon name={label.icon} /><span><b>{label.title}</b><small>{label.subtitle}</small></span></div><Badge kind="plain" value={`${rows.length} tugas`} /></header>
+                  <div className="station-workbench-group__list">
+                    {rows.length ? rows.map((task, index) => renderStationTaskCard(task, primaryQueue[0]?.step.id === task.step.id ? 0 : index)) : <div className="empty-state">Tidak ada tugas pada kelompok ini.</div>}
+                  </div>
                 </article>
-              }) : <div className="empty-state empty-state--large">Tidak ada proses yang ditugaskan kepada akun ini. Admin atau PPIC perlu menetapkan Anda sebagai PIC pada proses WO.</div>}
+              })}
             </div>
+
+            {!stationTasks.length ? <div className="empty-state empty-state--large">Tidak ada proses yang ditugaskan kepada akun ini. Admin atau PPIC perlu menetapkan Anda sebagai PIC pada proses WO.</div> : null}
           </section>
-        ) : null}
+        })() : null}
 
         {view === 'wip' ? (
           <section className="view-content">
