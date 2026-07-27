@@ -324,7 +324,7 @@ export function WorkOrderKanbanBoard({ workOrders, currentUser, staffDirectory, 
 
       {(hiddenClosedCount || hiddenCancelledCount) ? (
         <div className="ka-hidden-history-note">
-          <Icon name="archive" />
+          <Icon name="package" />
           <span>
             {hiddenClosedCount ? `${formatNumber(hiddenClosedCount)} WO ditutup` : null}
             {hiddenClosedCount && hiddenCancelledCount ? ' · ' : null}
