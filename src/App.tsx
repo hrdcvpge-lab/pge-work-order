@@ -879,20 +879,20 @@ export default function App({ currentUser, onSignOut }: AppProps) {
             <article className={`surface-card ${orderViewMode === 'board' ? 'surface-card--orders-board' : ''}`}>
               <header className="surface-card__header surface-card__header--orders">
                 <div>
-                  <p className="eyebrow">{orderViewMode === 'board' ? 'Papan Beta' : 'Daftar utama'}</p>
-                  <h2>{orderViewMode === 'board' ? 'Papan Kartu Antrian · Beta' : hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2>
+                  <p className="eyebrow">{orderViewMode === 'board' ? 'Papan Monitoring' : 'Daftar utama'}</p>
+                  <h2>{orderViewMode === 'board' ? 'Papan Monitoring' : hasFullWorkOrderAccess(currentUser) ? 'Kontrol Work Order' : 'Work Order Saya'}</h2>
                   <span>{orderViewMode === 'board'
                     ? hasFullWorkOrderAccess(currentUser)
-                      ? 'Beta: papan untuk overview dan koreksi status terbatas. Eksekusi proses, qty, QC, Close, dan Archive tetap lewat modal WO.'
-                      : 'Beta mode baca: buka kartu untuk melihat detail. Eksekusi utama tetap melalui modal WO.'
+                      ? 'Papan untuk monitoring posisi WO. Eksekusi proses, qty, QC, Close, dan Archive tetap lewat modal WO.'
+                      : 'Mode baca: buka kartu untuk melihat detail. Eksekusi utama tetap melalui modal WO.'
                     : hasFullWorkOrderAccess(currentUser)
-                      ? 'Daftar MVP dipisah tegas: Aktif untuk WO berjalan, Selesai untuk status done menunggu close, Ditutup untuk WO closed.'
+                      ? 'Daftar operasional dipisah tegas: Aktif untuk WO berjalan, Selesai untuk status done menunggu close, Ditutup untuk WO closed.'
                       : 'Hanya WO yang mempunyai proses ditugaskan kepada akun ini yang ditampilkan.'}</span>
                 </div>
                 <div className="orders-header-actions">
                   <div className="order-view-toggle" role="tablist" aria-label="Pilih tampilan Work Order">
-                    <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar MVP</button>
-                    <button type="button" className={orderViewMode === 'board' ? 'is-active' : ''} onClick={() => setOrderViewMode('board')}>Papan Beta</button>
+                    <button type="button" className={orderViewMode === 'list' ? 'is-active' : ''} onClick={() => setOrderViewMode('list')}>Daftar Operasional</button>
+                    <button type="button" className={orderViewMode === 'board' ? 'is-active' : ''} onClick={() => setOrderViewMode('board')}>Papan Monitoring</button>
                   </div>
                   <Badge kind="plain" value={`${orderViewMode === 'board' ? boardOrders.length : filteredOrders.length} WO`} />
                 </div>
@@ -915,7 +915,7 @@ export default function App({ currentUser, onSignOut }: AppProps) {
               {orderViewMode === 'board' ? <>
                 <div className="mvp-beta-warning" role="note">
                   <Icon name="warning" />
-                  <span><b>Papan masih beta.</b> Gunakan untuk monitoring dan koreksi status terbatas. Untuk kerja harian yang aman, pakai Daftar MVP dan modal WO sebagai sumber eksekusi.</span>
+                  <span><b>Papan monitoring.</b> Gunakan untuk monitoring posisi WO. Untuk kerja harian yang aman, pakai Daftar Operasional dan modal WO sebagai sumber eksekusi.</span>
                 </div>
                 <WorkOrderKanbanBoard workOrders={boardOrders} currentUser={currentUser} staffDirectory={staffDirectory} canMoveStatus={hasFullWorkOrderAccess(currentUser)} onMoveStatus={moveKanbanWorkOrderStatus} onOpenOrder={openOrder} onOpenAction={openKanbanAction} />
               </> : <div className="table-wrap"><table className="wo-table"><thead><tr><th>WO</th><th>Tipe / sumber</th><th>Produk</th><th>Target</th><th>Progress</th><th>Status / blocker</th><th>Proses saat ini / PIC</th><th /></tr></thead><tbody>

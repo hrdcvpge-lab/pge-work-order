@@ -6850,7 +6850,7 @@ body {
 }
 
 .ka-board-shell::before {
-  content: 'Beta: papan membaca status WO tersimpan. Close/Archive tetap dari modal WO.';
+  content: 'Papan membaca status WO tersimpan. Close/Archive tetap dari modal WO.';
   display: block;
   margin: 0 0 10px;
   color: #756f65;
@@ -6994,4 +6994,99 @@ body {
 .wo-table__row--terminal .wo-progress-cell small,
 .wo-table__row--terminal .wo-status-cell small {
   color: #6b7280;
+}
+
+
+/* v0.7.4 — Production board cleanup: closed WO become compact history summary. */
+.ka-column--closed-summary {
+  min-height: 260px;
+}
+
+.ka-column--closed-summary .ka-column__header {
+  background: rgba(247, 243, 234, 0.74);
+}
+
+.ka-column__closed-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.ka-closed-summary-card {
+  border: 1px dashed rgba(135, 23, 25, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 250, 241, 0.74);
+  padding: 12px;
+  display: grid;
+  gap: 5px;
+  color: var(--ka-ink);
+}
+
+.ka-closed-summary-card b {
+  color: var(--ka-burgundy-deep);
+  font-family: var(--ka-display);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.ka-closed-summary-card span {
+  color: var(--ka-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ka-closed-list {
+  display: grid;
+  gap: 7px;
+}
+
+.ka-closed-list button {
+  width: 100%;
+  border: 1px solid var(--ka-hairline);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.8);
+  padding: 9px 10px;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+  color: var(--ka-ink);
+}
+
+.ka-closed-list button:hover,
+.ka-closed-list button:focus-visible {
+  border-color: rgba(135, 23, 25, 0.32);
+  box-shadow: 0 8px 18px rgba(44, 35, 25, 0.08);
+  outline: none;
+}
+
+.ka-closed-list strong {
+  color: var(--ka-burgundy);
+  font-family: var(--ka-mono);
+  font-size: 11px;
+}
+
+.ka-closed-list span {
+  font-weight: 800;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ka-closed-list small,
+.ka-closed-more {
+  color: var(--ka-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ka-column--empty-state.ka-column--closed-summary .ka-column__closed-panel {
+  min-height: auto;
+}
+
+/* Remove user-facing MVP/Beta language without changing existing class names. */
+.mvp-beta-warning strong,
+.ka-readonly-banner strong {
+  letter-spacing: 0;
 }
