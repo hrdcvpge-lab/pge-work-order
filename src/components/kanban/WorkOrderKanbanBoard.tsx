@@ -46,7 +46,6 @@ const KANBAN_COLUMNS: KanbanColumn[] = [
   { id: 'qc', title: statusLabels.qc, note: 'Menunggu / proses QC' },
   { id: 'packing', title: 'Packing / Gudang', note: 'Finalisasi akhir' },
   { id: 'done', title: statusLabels.done, note: 'Menunggu close PPIC' },
-  { id: 'closed', title: statusLabels.closed, note: 'Arsip produksi terkunci' },
 ]
 
 const TERMINAL_STATUSES: WorkOrderStatus[] = ['done', 'closed', 'cancelled']
